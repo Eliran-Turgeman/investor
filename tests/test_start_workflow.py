@@ -9,7 +9,7 @@ from unittest import mock
 
 class OfflineStartWorkflowTests(unittest.TestCase):
     def test_start_bootstraps_data_folder_without_network(self):
-        cli = importlib.import_module("investor_research.cli")
+        cli = importlib.import_module("investor_toolkit.cli")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             research_root = Path(tmpdir) / "research"
@@ -21,6 +21,7 @@ class OfflineStartWorkflowTests(unittest.TestCase):
             ):
                 exit_code = cli.main(
                     [
+                        "research",
                         "start",
                         "msft",
                         "--offline",
@@ -58,12 +59,12 @@ class OfflineStartWorkflowTests(unittest.TestCase):
             self.assertFalse((ticker_dir / "questions.md").exists())
 
     def test_start_is_idempotent_and_preserves_agent_owned_files(self):
-        cli = importlib.import_module("investor_research.cli")
+        cli = importlib.import_module("investor_toolkit.cli")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             research_root = Path(tmpdir) / "research"
 
-            args = ["start", "MSFT", "--offline", "--research-root", str(research_root)]
+            args = ["research", "start", "MSFT", "--offline", "--research-root", str(research_root)]
             with mock.patch.object(
                 socket,
                 "socket",

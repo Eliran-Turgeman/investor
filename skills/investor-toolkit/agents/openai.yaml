@@ -1,0 +1,4 @@
+interface:
+  display_name: "Investor Toolkit"
+  short_description: "Use local research and RSU tax tools"
+  default_prompt: "Use $investor-toolkit to prepare deterministic investor data or RSU tax estimates, then answer by reading and citing local files and command inputs."

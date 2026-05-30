@@ -3,17 +3,17 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "investor-research"
+name = "investor-toolkit"
 version = "0.1.0"
-description = "Local-first value investing research assistant CLI"
+description = "Local-first investor toolkit CLI"
 readme = "README.md"
 requires-python = ">=3.11"
-authors = [{ name = "Investor Research Assistant" }]
+authors = [{ name = "Investor Toolkit" }]
 dependencies = []
 
 [project.scripts]
-research = "investor_research.cli:main"
+investor = "investor_toolkit.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["investor_research*"]
+include = ["investor_toolkit*"]

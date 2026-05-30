@@ -7,6 +7,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,16 @@ from .utils import parse_iso_date, read_json, utc_now_iso, write_json, write_tex
 
 class ProviderError(RuntimeError):
     pass
+
+
+@dataclass(slots=True)
+class FxRate:
+    base_currency: str
+    target_currency: str
+    rate: float
+    provider: str
+    fetched_at: str | None
+    source: str
 
 
 class HttpClient:
@@ -58,6 +69,87 @@ class HttpClient:
             return json.loads(self.get_text(url, headers=headers))
         except ValueError as exc:
             raise ProviderError(f"Invalid JSON response from {url}") from exc
+
+
+class ExchangeRateProvider:
+    OPEN_ACCESS_URL = "https://open.er-api.com/v6/latest/USD"
+
+    def __init__(
+        self,
+        root: Path,
+        http: HttpClient | None = None,
+        research_root: Path | None = None,
+    ) -> None:
+        self.root = Path(root)
+        self.http = http or HttpClient()
+        cache_root = Path(research_root) if research_root is not None else self.root / "research"
+        self.global_cache = cache_root / "_cache" / "fx"
+        self.global_cache.mkdir(parents=True, exist_ok=True)
+
+    def get_usd_ils_rate(self, refresh: bool = False) -> FxRate:
+        cache = self.global_cache / "usd_ils.json"
+        cached = read_json(cache, None)
+        if cached is not None and not refresh and self._is_same_day_cache(cached):
+            response = cached.get("response", cached) if isinstance(cached, dict) else cached
+            fetched_at = cached.get("fetchedAt") if isinstance(cached, dict) else None
+            return self._rate_from_response(response, fetched_at)
+
+        response = self.http.get_json(self.OPEN_ACCESS_URL, headers={"User-Agent": "InvestorToolkit/0.1"})
+        rate = self._rate_from_response(response, None)
+        fetched_at = utc_now_iso()
+        write_json(
+            cache,
+            {
+                "provider": "ExchangeRate-API",
+                "fetchedAt": fetched_at,
+                "request": {"url": self.OPEN_ACCESS_URL},
+                "response": response,
+            },
+        )
+        return FxRate(
+            base_currency=rate.base_currency,
+            target_currency=rate.target_currency,
+            rate=rate.rate,
+            provider=rate.provider,
+            fetched_at=fetched_at,
+            source=rate.source,
+        )
+
+    @staticmethod
+    def _is_same_day_cache(cached: Any) -> bool:
+        if not isinstance(cached, dict):
+            return False
+        fetched_at = str(cached.get("fetchedAt", ""))
+        return fetched_at[:10] == date.today().isoformat()
+
+    @staticmethod
+    def _rate_from_response(response: Any, fetched_at: str | None) -> FxRate:
+        if not isinstance(response, dict):
+            raise ProviderError("Invalid ExchangeRate-API response")
+        if str(response.get("result", "success")).lower() not in {"success", ""}:
+            raise ProviderError("ExchangeRate-API did not return a successful response")
+        rates = response.get("rates")
+        if not isinstance(rates, dict) or "ILS" not in rates:
+            raise ProviderError("ExchangeRate-API response did not include USD/ILS")
+        try:
+            rate = float(rates["ILS"])
+        except (TypeError, ValueError) as exc:
+            raise ProviderError("ExchangeRate-API USD/ILS rate was not numeric") from exc
+        if rate <= 0:
+            raise ProviderError("ExchangeRate-API USD/ILS rate was not positive")
+        provider = "ExchangeRate-API"
+        date_label = response.get("time_last_update_utc") or fetched_at
+        source = f"{provider} latest USD/ILS"
+        if date_label:
+            source = f"{source} ({date_label})"
+        return FxRate(
+            base_currency="USD",
+            target_currency="ILS",
+            rate=rate,
+            provider=provider,
+            fetched_at=fetched_at,
+            source=source,
+        )
 
 
 class SecProvider:

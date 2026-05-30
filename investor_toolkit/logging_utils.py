@@ -7,7 +7,7 @@ from pathlib import Path
 def configure_logging(root: Path) -> logging.Logger:
     log_dir = root / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    logger = logging.getLogger("investor_research")
+    logger = logging.getLogger("investor_toolkit")
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
@@ -31,7 +31,7 @@ def configure_logging(root: Path) -> logging.Logger:
 
 
 def close_logging() -> None:
-    logger = logging.getLogger("investor_research")
+    logger = logging.getLogger("investor_toolkit")
     for handler in list(logger.handlers):
         logger.removeHandler(handler)
         handler.close()

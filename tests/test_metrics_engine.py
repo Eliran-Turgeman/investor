@@ -4,7 +4,7 @@ import unittest
 
 class MetricsEngineTests(unittest.TestCase):
     def test_calculates_core_metrics_from_normalized_records(self):
-        metrics_engine = importlib.import_module("investor_research.metrics.engine")
+        metrics_engine = importlib.import_module("investor_toolkit.metrics.engine")
 
         income_statements = [
             {
@@ -110,7 +110,7 @@ class MetricsEngineTests(unittest.TestCase):
         self.assertAlmostEqual(current["ev_to_ebit"], 2000.0 / 275.0)
 
     def test_missing_denominator_metrics_are_none_instead_of_zero_division(self):
-        metrics_engine = importlib.import_module("investor_research.metrics.engine")
+        metrics_engine = importlib.import_module("investor_toolkit.metrics.engine")
 
         result = metrics_engine.calculate_metrics(
             ticker="ZERO",

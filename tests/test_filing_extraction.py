@@ -4,7 +4,7 @@ import unittest
 
 class FilingExtractionTests(unittest.TestCase):
     def test_extracts_10k_sections_from_representative_html(self):
-        extractor = importlib.import_module("investor_research.filings.extractor")
+        extractor = importlib.import_module("investor_toolkit.filings.extractor")
 
         html = """
         <html>
@@ -63,7 +63,7 @@ class FilingExtractionTests(unittest.TestCase):
         self.assertIn("Revenue is recognized", notes["text"])
 
     def test_extracts_10q_sections_from_representative_text(self):
-        extractor = importlib.import_module("investor_research.filings.extractor")
+        extractor = importlib.import_module("investor_toolkit.filings.extractor")
 
         text = """
         PART I - FINANCIAL INFORMATION
@@ -113,7 +113,7 @@ class FilingExtractionTests(unittest.TestCase):
         self.assertNotIn("Exhibits", sections["risk_factors"]["text"])
 
     def test_missing_section_returns_failed_status(self):
-        extractor = importlib.import_module("investor_research.filings.extractor")
+        extractor = importlib.import_module("investor_toolkit.filings.extractor")
 
         sections = extractor.extract_sections(
             document="Item 1. Business\nOnly business text is present.",
