@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging / build output
+*.egg-info/
+build/
+dist/
+pip-wheel-metadata/
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local runtime artifacts
+logs/
+research/
+research.config.json
+
+# Environment / secrets
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+prd.md
+
+copilot-instructions.md

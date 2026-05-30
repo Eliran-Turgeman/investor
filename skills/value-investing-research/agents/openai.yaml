@@ -1,0 +1,4 @@
+interface:
+  display_name: "Value Investing Research"
+  short_description: "Analyze local stock research data"
+  default_prompt: "Use the local research data CLI to prepare filings and metrics, then answer by reading and citing files under research/<TICKER>/."
