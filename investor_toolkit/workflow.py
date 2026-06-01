@@ -34,7 +34,10 @@ class ResearchWorkflow:
         self.cwd = Path(cwd).resolve()
         self.storage = ResearchStorage(self.cwd, research_root=research_root)
         self.logger = configure_logging(self.storage.research_root.parent)
-        self.sec = SecProvider(self.storage.research_root.parent)
+        self.sec = SecProvider(
+            self.storage.research_root.parent,
+            research_root=self.storage.research_root,
+        )
         self.market = StooqMarketDataProvider()
         self.normalizer = FinancialNormalizer()
         self.extractor = FilingExtractor()

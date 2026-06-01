@@ -1,6 +1,6 @@
 # Investor Toolkit Usage Guide
 
-The `investor` CLI is the deterministic toolkit layer. It ingests and normalizes company research data, calculates local metrics, and estimates Israeli Section 102 RSU taxes. It does not answer investment questions or generate investment analysis.
+The `investor` CLI is the deterministic toolkit layer. It ingests and normalizes company research data, calculates local metrics, runs explicit-assumption intrinsic valuation models, and estimates Israeli Section 102 RSU taxes. It does not answer investment questions or generate investment analysis.
 
 ## Install
 
@@ -37,10 +37,15 @@ Current command surface:
 investor research start
 investor research ingest
 investor research metrics
+investor assumptions init
+investor assumptions validate
+investor value
+investor value compare
+investor reverse-dcf
 investor rsu-tax
 ```
 
-There are intentionally no CLI commands for `ask`, `memo`, `challenge`, `valuation`, or `context`. Those are agent/user responsibilities over local data.
+There are intentionally no CLI commands for `ask`, `memo`, `challenge`, or investment recommendations. Valuation commands calculate from explicit assumptions; the agent/user owns the assumptions and interpretation.
 
 ### `investor research start <ticker>`
 
@@ -102,6 +107,68 @@ research/MSFT/metrics/metrics.md
 ```
 
 Metrics cover growth, margins, cash generation, balance sheet quality, capital allocation, returns, and valuation support where source data is available.
+
+### `investor assumptions init <ticker>`
+
+Creates a valuation assumptions JSON template. The template is schema-valid and prefilled with deterministic local values where available, while judgment fields remain `null`.
+
+```powershell
+investor assumptions init MSFT `
+  --model fcff-dcf `
+  --scenario base `
+  --output assumptions/MSFT.base.json
+```
+
+Supported models are `fcff-dcf`, `owner-earnings-dcf`, `reverse-dcf`, `epv`, and `multiples`.
+
+### `investor assumptions validate <path>`
+
+Validates an assumptions JSON file and any `use_latest` local-data references.
+
+```powershell
+investor assumptions validate assumptions/MSFT.base.json
+```
+
+Validation fails on missing required assumptions, invalid numeric ranges, ticker mismatch during valuation, and terminal growth greater than or equal to the discount rate. Warnings flag assumptions that may be aggressive relative to common valuation guardrails or local history.
+
+### `investor value <ticker>`
+
+Runs a deterministic valuation from an assumptions file.
+
+```powershell
+investor value MSFT `
+  --assumptions assumptions/MSFT.base.json `
+  --include-sensitivity `
+  --format json `
+  --output valuations/MSFT.base.result.json
+```
+
+Options:
+
+- `--format text|json|markdown`
+- `--output <path>`
+- `--include-sensitivity` for FCFF/reverse DCF sensitivity tables
+- `--include-debug` for projected-year details
+- `--export-agent-context` to write `context/valuations/<TICKER>.<SCENARIO>.*`
+
+When SEC `company_facts.json` contains newer quarterly data than `financials.json`, valuation uses a latest twelve-month base for revenue, cash flow, and related metrics, plus latest available quarterly cash, debt, and diluted shares.
+
+### `investor value compare <ticker>`
+
+Compares multiple scenarios.
+
+```powershell
+investor value compare MSFT `
+  --assumptions assumptions/MSFT.conservative.json `
+  --assumptions assumptions/MSFT.base.json `
+  --assumptions assumptions/MSFT.aggressive.json `
+  --format markdown `
+  --output valuations/MSFT.comparison.md
+```
+
+### `investor reverse-dcf <ticker>`
+
+Alias for running a `reverse-dcf` assumptions file. Reverse DCF solves one unknown at a time: `revenueGrowthYears1To5`, `targetOperatingMargin`, `terminalGrowthRate`, or `discountRate`.
 
 ### `investor rsu-tax`
 
@@ -201,12 +268,20 @@ research/
       metrics.md
     index/
       filing_chunks.jsonl
+assumptions/
+  MSFT.base.json
+valuations/
+  MSFT.base.result.json
+context/
+  valuations/
+    MSFT.base.md
 ```
 
 Artifact ownership:
 
 - CLI-owned: `company.json`, `filings/`, `extracted/`, `data/`, `metrics/`, `index/`.
-- Agent/user-owned: `memo.md`, `questions.md`, valuation notes, thesis logs, and any other interpretation files.
+- CLI-owned valuation outputs: assumptions templates, validation output, valuation result files, scenario comparisons, and exported agent context.
+- Agent/user-owned: `memo.md`, `questions.md`, thesis logs, final valuation interpretation, and any other recommendation or judgment files.
 
 The CLI will not create or overwrite agent/user-owned analysis files.
 
@@ -258,5 +333,6 @@ Market data:
 Product scope:
 
 - V1 includes US-listed public-company research data and Israeli Section 102 RSU tax estimates.
-- V1 does not provide question answering, fair-value estimates, memo writing, real-time data, broker integration, automated trading, tax advice, portfolio management, or buy/sell recommendations.
+- V1 includes deterministic valuation calculations from explicit assumptions, but does not choose those assumptions or provide buy/sell recommendations.
+- V1 does not provide question answering, memo writing, real-time data, broker integration, automated trading, tax advice, or portfolio management.
 - `investor rsu-tax` is a deterministic estimate, not a filing-grade Israeli tax engine.

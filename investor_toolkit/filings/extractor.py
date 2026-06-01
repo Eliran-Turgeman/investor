@@ -220,6 +220,8 @@ class FilingExtractor:
                     )
                 )
             else:
+                if extracted_path.is_file():
+                    extracted_path.unlink()
                 results.append(
                     ExtractionResult(
                         section=title,
@@ -317,12 +319,52 @@ def _choose_start(
     matches.sort(key=lambda item: item[0])
     if not matches:
         return None
-    for pos, heading in matches:
+    candidates = [(pos, heading) for pos, heading in matches if not _is_likely_toc_entry(text, pos)]
+    if not candidates:
+        return None
+    for pos, heading in candidates:
         end = _find_first_after(text, end_patterns, pos + 1)
         excerpt = text[pos : end[0] if end else min(len(text), pos + 4000)]
         if len(excerpt.split()) >= 20:
             return pos, heading
-    return matches[-1]
+    return candidates[-1]
+
+
+def _is_likely_toc_entry(text: str, position: int) -> bool:
+    before = text[max(0, position - 1500) : position]
+    after = text[position : min(len(text), position + 1200)]
+    marker_context = f"{before[-1000:]}\n{after[:150]}"
+    has_contents_marker = re.search(
+        r"\btable\s+of\s+contents\b|\bcontents\b",
+        marker_context,
+        flags=re.IGNORECASE,
+    )
+    has_index_marker = re.search(
+        r"\bindex\b",
+        marker_context,
+        flags=re.IGNORECASE,
+    ) and re.search(r"\bpage\b", marker_context, flags=re.IGNORECASE)
+    if not (has_contents_marker or has_index_marker):
+        return False
+    item_headings = re.findall(
+        r"\bitem\s+\d+[a-z]?\s*[\.\-:]?",
+        after[:900],
+        flags=re.IGNORECASE,
+    )
+    return len(item_headings) >= 2 and _has_toc_page_number_cue(after[:900])
+
+
+def _has_toc_page_number_cue(text: str) -> bool:
+    lines = [line.strip() for line in text.splitlines()[:20] if line.strip()]
+    for line in lines:
+        if re.fullmatch(r"(?:page\s*)?\d{1,4}", line, flags=re.IGNORECASE):
+            return True
+        if re.search(r"\.{2,}\s*\d{1,4}$", line):
+            return True
+        has_item_heading = re.search(r"\bitem\s+\d+[a-z]?\b", line, flags=re.IGNORECASE)
+        if has_item_heading and re.search(r"\b\d{1,4}$", line):
+            return True
+    return False
 
 
 def _find_first_after(text: str, patterns: list[str], position: int) -> tuple[int, str] | None:

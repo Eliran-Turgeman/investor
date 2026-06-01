@@ -4,15 +4,21 @@ from pathlib import Path
 from typing import Any
 
 from .models import CompanyIdentity
-from .utils import append_text, read_json, utc_now_iso, write_json, write_text
+from .utils import append_text, normalize_ticker, read_json, utc_now_iso, write_json, write_text
 
 
 class ResearchStorage:
     def __init__(self, root: str | Path = ".", research_root: str | Path | None = None) -> None:
         self.root = Path(root).resolve()
-        self.research_root = (
-            Path(research_root).resolve() if research_root is not None else self.root / "research"
-        )
+        if research_root is None:
+            self.research_root = self.root / "research"
+        else:
+            configured_root = Path(research_root)
+            self.research_root = (
+                configured_root.resolve()
+                if configured_root.is_absolute()
+                else (self.root / configured_root).resolve()
+            )
 
     def ensure_workspace(self) -> None:
         self.research_root.mkdir(parents=True, exist_ok=True)
@@ -29,7 +35,7 @@ class ResearchStorage:
             )
 
     def company_dir(self, ticker: str) -> Path:
-        return self.research_root / ticker.upper()
+        return self.research_root / normalize_ticker(ticker)
 
     def ensure_company_dirs(self, ticker: str) -> Path:
         self.ensure_workspace()
@@ -60,22 +66,34 @@ class ResearchStorage:
             return None
         return CompanyIdentity.from_dict(read_json(path, {}))
 
-    def write_company_file(self, ticker: str, relative_path: str, content: str) -> Path:
-        path = self.company_dir(ticker) / relative_path
+    def write_company_file(self, ticker: str, relative_path: str | Path, content: str) -> Path:
+        path = self.company_path(ticker, relative_path)
         write_text(path, content)
         return path
 
-    def append_company_file(self, ticker: str, relative_path: str, content: str) -> Path:
-        path = self.company_dir(ticker) / relative_path
+    def append_company_file(self, ticker: str, relative_path: str | Path, content: str) -> Path:
+        path = self.company_path(ticker, relative_path)
         append_text(path, content)
         return path
 
-    def read_company_json(self, ticker: str, relative_path: str, default: Any = None) -> Any:
-        return read_json(self.company_dir(ticker) / relative_path, default)
+    def read_company_json(self, ticker: str, relative_path: str | Path, default: Any = None) -> Any:
+        return read_json(self.company_path(ticker, relative_path), default)
 
-    def write_company_json(self, ticker: str, relative_path: str, data: Any) -> Path:
-        path = self.company_dir(ticker) / relative_path
+    def write_company_json(self, ticker: str, relative_path: str | Path, data: Any) -> Path:
+        path = self.company_path(ticker, relative_path)
         write_json(path, data)
+        return path
+
+    def company_path(self, ticker: str, relative_path: str | Path) -> Path:
+        relative = Path(relative_path)
+        if relative.is_absolute():
+            raise ValueError(f"Company path must be relative: {relative_path}")
+        base = self.company_dir(ticker).resolve()
+        path = (base / relative).resolve()
+        try:
+            path.relative_to(base)
+        except ValueError as exc:
+            raise ValueError(f"Company path escapes ticker directory: {relative_path}") from exc
         return path
 
     def relative_to_root(self, path: Path) -> str:

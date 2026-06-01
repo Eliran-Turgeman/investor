@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
-from ..utils import money, percent, read_json, safe_divide, write_json, write_text
+from ..utils import money, parse_iso_date, percent, read_json, safe_divide, write_json, write_text
 
 
 ALIASES: dict[str, tuple[str, ...]] = {
@@ -46,7 +47,10 @@ def calculate_metrics(
     balance_by_period = _by_period(balance_sheets or [])
     cash_by_period = _by_period(cash_flows or [])
     market_by_period = _by_period(market_data or [])
-    periods = sorted(set(income_by_period) | set(balance_by_period) | set(cash_by_period) | set(market_by_period))
+    periods = sorted(
+        set(income_by_period) | set(balance_by_period) | set(cash_by_period) | set(market_by_period),
+        key=_period_sort_key,
+    )
     rows: list[dict[str, Any]] = []
     for index, period in enumerate(periods):
         prior_period = periods[index - 1] if index > 0 else None
@@ -62,7 +66,7 @@ def calculate_metrics(
         operating_income = _num(income, "operating_income")
         net_income = _num(income, "net_income")
         interest_expense = _abs_or_none(_num(income, "interest_expense"))
-        diluted_shares = _num(income, "weighted_average_diluted_shares")
+        diluted_shares = _positive_num(income, "weighted_average_diluted_shares")
 
         operating_cash_flow = _num(cash, "operating_cash_flow")
         capex_raw = _num(cash, "capital_expenditures")
@@ -81,13 +85,13 @@ def calculate_metrics(
         prior_gross_profit = _num(prior_income, "gross_profit")
         prior_operating_income = _num(prior_income, "operating_income")
         prior_net_income = _num(prior_income, "net_income")
-        prior_shares = _num(prior_income, "weighted_average_diluted_shares")
+        prior_shares = _positive_num(prior_income, "weighted_average_diluted_shares")
         prior_equity = _num(prior_balance, "total_equity")
         prior_assets = _num(prior_balance, "total_assets")
 
-        market_cap = _num(market, "market_cap")
-        price = _num(market, "price")
-        shares_outstanding = _num(market, "shares_outstanding") or diluted_shares
+        market_cap = _positive_num(market, "market_cap")
+        price = _positive_num(market, "price")
+        shares_outstanding = _positive_num(market, "shares_outstanding") or diluted_shares
         if market_cap is None and price is not None and shares_outstanding is not None:
             market_cap = price * shares_outstanding
         enterprise_value = _add_optional(market_cap, net_debt)
@@ -176,7 +180,7 @@ def calculate_from_financial_rows(
                 "stockBasedCompensation": row.get("stockBasedCompensation"),
             }
         )
-    market_data = _market_data_from_prices(rows, prices or [])
+    market_data = _market_data_from_prices(ticker, rows, prices or [])
     return calculate_metrics(ticker, income, balance, cash, market_data)
 
 
@@ -281,9 +285,17 @@ def _num(row: dict[str, Any], canonical: str) -> float | None:
     if value in (None, ""):
         return None
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _positive_num(row: dict[str, Any], canonical: str) -> float | None:
+    value = _num(row, canonical)
+    if value is None or value <= 0:
+        return None
+    return value
 
 
 def _abs_or_none(value: float | None) -> float | None:
@@ -341,17 +353,28 @@ def _roic(row: dict[str, Any], income: dict[str, Any]) -> float | None:
     return safe_divide(nopat, invested_capital)
 
 
-def _market_data_from_prices(rows: list[dict[str, Any]], prices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _market_data_from_prices(ticker: str, rows: list[dict[str, Any]], prices: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not rows or not prices:
         return []
-    latest_price = None
-    for price in sorted(prices, key=lambda item: str(item.get("date", ""))):
-        close = price.get("adjustedClose", price.get("close"))
-        if close not in (None, ""):
-            latest_price = float(close)
-    if latest_price is None:
+    valid_prices = []
+    expected_ticker = ticker.upper()
+    for price in prices:
+        row_ticker = str(price.get("ticker", "") or "").upper()
+        if row_ticker not in {"", expected_ticker}:
+            continue
+        row_date = parse_iso_date(str(price.get("date", "") or ""))
+        if row_date is None:
+            continue
+        parsed_close = _first_float(price.get("close"), price.get("adjustedClose"))
+        if parsed_close is not None:
+            valid_prices.append((row_date, parsed_close))
+    if not valid_prices:
         return []
-    latest_period = sorted(str(row.get("period", "")) for row in rows if row.get("period"))[-1]
+    latest_price = sorted(valid_prices, key=lambda item: item[0])[-1][1]
+    latest_period = sorted(
+        (str(row.get("period", "")) for row in rows if row.get("period")),
+        key=_period_sort_key,
+    )[-1]
     latest_row = next((row for row in rows if row.get("period") == latest_period), {})
     shares = latest_row.get("dilutedShares")
     return [{"period": latest_period, "price": latest_price, "shares_outstanding": shares}]
@@ -361,6 +384,39 @@ def _ratio(value: Any) -> str:
     if value is None:
         return "n/a"
     return f"{float(value):.1f}x"
+
+
+def _period_sort_key(period: str) -> tuple[int, int, str]:
+    text = str(period).upper()
+    year = int(text[:4]) if text[:4].isdigit() else 0
+    rank = 0
+    for candidate_rank, marker in [(1, "Q1"), (2, "Q2"), (3, "Q3"), (4, "Q4")]:
+        if marker in text:
+            rank = candidate_rank
+            break
+    if "FY" in text:
+        rank = 5
+    if "TTM" in text:
+        rank = 6
+    return year, rank, text
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) and parsed > 0 else None
+
+
+def _first_float(*values: Any) -> float | None:
+    for value in values:
+        parsed = _float_or_none(value)
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _red_flags(latest: dict[str, Any]) -> list[str]:
@@ -375,4 +431,3 @@ def _red_flags(latest: dict[str, Any]) -> list[str]:
     if not flags:
         flags.append("- No deterministic red flags detected from currently normalized data.")
     return flags
-

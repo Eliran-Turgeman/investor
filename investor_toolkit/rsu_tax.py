@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 from typing import Any
@@ -178,6 +179,8 @@ def latest_sale_price(price_rows: list[dict[str, Any]], sale_date: date) -> Pric
 
 
 def infer_102_scenario(grant_date: date, sale_date: date) -> str:
+    if sale_date < grant_date:
+        raise ValueError("sale date cannot be before grant date")
     if sale_date >= add_years(grant_date, 2):
         return SCENARIO_QUALIFIED
     return SCENARIO_EARLY
@@ -231,6 +234,8 @@ def render_rsu_tax_summary(result: RsuTaxResult) -> str:
 
 
 def normalize_rate(value: float) -> float:
+    if not math.isfinite(value):
+        raise ValueError("ordinary tax rate must be finite")
     if value > 1:
         value = value / 100
     if value < 0 or value > 1:
@@ -276,6 +281,8 @@ def _build_scenario(
 
 
 def estimate_ni_health(salary_ytd_ils: float, ordinary_income_ils: float) -> float:
+    if not math.isfinite(salary_ytd_ils) or not math.isfinite(ordinary_income_ils):
+        raise ValueError("NI/health inputs must be finite")
     if salary_ytd_ils < 0:
         raise ValueError("salary_ytd_ils cannot be negative")
     if ordinary_income_ils <= 0:
@@ -295,6 +302,14 @@ def _annual_ni_health(income_ils: float) -> float:
 
 
 def _validate_inputs(inputs: RsuTaxInputs) -> None:
+    _require_finite(inputs.shares, "shares")
+    _require_finite(inputs.grant_price_usd, "grant price")
+    _require_finite(inputs.sale_price_usd, "sale price")
+    _require_finite(inputs.fx_usd_ils, "fx_usd_ils")
+    _require_finite(inputs.sale_fees_ils, "sale fees")
+    _require_finite(inputs.capital_gain_offset_ils, "capital gain offset")
+    if inputs.salary_ytd_ils is not None:
+        _require_finite(inputs.salary_ytd_ils, "salary_ytd_ils")
     if inputs.shares <= 0:
         raise ValueError("shares must be greater than zero")
     if inputs.grant_price_usd < 0:
@@ -310,6 +325,13 @@ def _validate_inputs(inputs: RsuTaxInputs) -> None:
     inputs.ordinary_tax_rate = normalize_rate(inputs.ordinary_tax_rate)
     if inputs.selected_scenario is not None:
         inputs.selected_scenario = _normalize_scenario(inputs.selected_scenario)
+    if inputs.grant_date is not None and inputs.sale_date is not None and inputs.sale_date < inputs.grant_date:
+        raise ValueError("sale date cannot be before grant date")
+
+
+def _require_finite(value: float, label: str) -> None:
+    if not math.isfinite(value):
+        raise ValueError(f"{label} must be finite")
 
 
 def _normalize_scenario(value: str) -> str:
@@ -388,6 +410,8 @@ def _price_row_value(row: dict[str, Any]) -> tuple[date | None, float | None]:
     try:
         close_value = float(close)
     except (TypeError, ValueError):
+        close_value = None
+    if close_value is not None and (not math.isfinite(close_value) or close_value <= 0):
         close_value = None
     return row_date, close_value
 

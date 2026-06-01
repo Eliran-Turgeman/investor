@@ -23,6 +23,18 @@ from .rsu_tax import (
 )
 from .storage import ResearchStorage
 from .utils import normalize_ticker, parse_iso_date
+from .valuation import (
+    SUPPORTED_MODELS,
+    compare_valuations,
+    export_agent_context,
+    init_assumptions_file,
+    load_assumptions,
+    render_comparison,
+    render_validation_report,
+    render_valuation_result,
+    run_valuation,
+    validate_assumptions_file,
+)
 from .workflow import ResearchWorkflow, WorkflowResult
 
 
@@ -56,6 +68,40 @@ def build_parser() -> argparse.ArgumentParser:
     metrics.add_argument("ticker")
     metrics.add_argument("--offline", action="store_true", help="Accepted for symmetry; metrics uses local data.")
     metrics.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    assumptions = subparsers.add_parser("assumptions", help="Create and validate valuation assumptions files.")
+    assumptions_subparsers = assumptions.add_subparsers(dest="assumptions_command", required=True)
+
+    assumptions_init = assumptions_subparsers.add_parser("init", help="Create a valuation assumptions template.")
+    assumptions_init.add_argument("ticker")
+    assumptions_init.add_argument("--model", choices=SUPPORTED_MODELS, required=True)
+    assumptions_init.add_argument("--scenario", default="base")
+    assumptions_init.add_argument("--output", required=True)
+    assumptions_init.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    assumptions_validate = assumptions_subparsers.add_parser("validate", help="Validate a valuation assumptions file.")
+    assumptions_validate.add_argument("path")
+    assumptions_validate.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    value = subparsers.add_parser("value", help="Run deterministic intrinsic valuation models.")
+    value.add_argument("target", help="Ticker to value, or 'compare'.")
+    value.add_argument("compare_ticker", nargs="?", help="Ticker when using 'value compare'.")
+    value.add_argument("--assumptions", action="append", help="Path to assumptions JSON. Repeat for compare.")
+    value.add_argument("--format", choices=("text", "json", "markdown"), default="text")
+    value.add_argument("--output")
+    value.add_argument("--include-sensitivity", action="store_true")
+    value.add_argument("--include-debug", action="store_true")
+    value.add_argument("--export-agent-context", action="store_true")
+    value.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    reverse_dcf = subparsers.add_parser("reverse-dcf", help="Run a reverse DCF valuation.")
+    reverse_dcf.add_argument("ticker")
+    reverse_dcf.add_argument("--assumptions", required=True)
+    reverse_dcf.add_argument("--format", choices=("text", "json", "markdown"), default="text")
+    reverse_dcf.add_argument("--output")
+    reverse_dcf.add_argument("--include-debug", action="store_true")
+    reverse_dcf.add_argument("--export-agent-context", action="store_true")
+    reverse_dcf.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
 
     rsu_tax = subparsers.add_parser("rsu-tax", help="Estimate Israeli Section 102 RSU sale taxes.")
     rsu_tax.add_argument("--ticker", help="Stock ticker used to fetch grant and sale prices.")
@@ -91,6 +137,78 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _print_result(workflow.metrics(args.ticker))
             else:
                 parser.error(f"Unknown research command: {args.research_command}")
+        elif args.command == "assumptions":
+            if args.assumptions_command == "init":
+                path = init_assumptions_file(
+                    args.ticker,
+                    model=args.model,
+                    scenario=args.scenario,
+                    output_path=args.output,
+                    cwd=Path.cwd(),
+                    research_root=research_root,
+                )
+                print(f"Wrote assumptions template: {path}")
+            elif args.assumptions_command == "validate":
+                report = validate_assumptions_file(args.path, cwd=Path.cwd(), research_root=research_root)
+                print(render_validation_report(args.path, report))
+                if report.errors:
+                    return 2
+            else:
+                parser.error(f"Unknown assumptions command: {args.assumptions_command}")
+        elif args.command == "value":
+            if args.target == "compare":
+                if not args.compare_ticker:
+                    parser.error("value compare requires a ticker")
+                if not args.assumptions:
+                    parser.error("value compare requires at least two --assumptions files")
+                comparison = compare_valuations(
+                    args.compare_ticker,
+                    args.assumptions,
+                    cwd=Path.cwd(),
+                    research_root=research_root,
+                    include_sensitivity=args.include_sensitivity,
+                )
+                _write_or_print(render_comparison(comparison, args.format), args.output)
+            else:
+                if args.compare_ticker:
+                    raise ValueError("value accepts only one ticker unless using 'value compare <ticker>'")
+                if not args.assumptions or len(args.assumptions) != 1:
+                    parser.error("value requires exactly one --assumptions file")
+                result = run_valuation(
+                    args.target,
+                    args.assumptions[0],
+                    cwd=Path.cwd(),
+                    research_root=research_root,
+                    include_sensitivity=args.include_sensitivity,
+                    include_debug=args.include_debug,
+                )
+                if args.export_agent_context:
+                    paths = export_agent_context(
+                        result,
+                        load_assumptions(args.assumptions[0], cwd=Path.cwd()),
+                        cwd=Path.cwd(),
+                    )
+                    result["agentContext"] = paths
+                _write_or_print(render_valuation_result(result, args.format), args.output)
+        elif args.command == "reverse-dcf":
+            result = run_valuation(
+                args.ticker,
+                args.assumptions,
+                cwd=Path.cwd(),
+                research_root=research_root,
+                include_sensitivity=False,
+                include_debug=args.include_debug,
+            )
+            if result.get("model") != "reverse-dcf":
+                raise ValueError("reverse-dcf requires an assumptions file with model reverse-dcf")
+            if args.export_agent_context:
+                paths = export_agent_context(
+                    result,
+                    load_assumptions(args.assumptions, cwd=Path.cwd()),
+                    cwd=Path.cwd(),
+                )
+                result["agentContext"] = paths
+            _write_or_print(render_valuation_result(result, args.format), args.output)
         elif args.command == "rsu-tax":
             inputs = _rsu_inputs_from_args(args, research_root=research_root)
             print(render_rsu_tax_summary(calculate_rsu_tax(inputs)))
@@ -109,6 +227,16 @@ def _print_result(result: WorkflowResult) -> None:
         print(message)
     for warning in result.warnings:
         print(f"Warning: {warning}", file=sys.stderr)
+
+
+def _write_or_print(content: str, output_path: str | None) -> None:
+    if output_path:
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8", newline="\n")
+        print(f"Wrote output: {path}")
+    else:
+        print(content, end="")
 
 
 def _rsu_inputs_from_args(args: argparse.Namespace, research_root: str | None = None) -> RsuTaxInputs:

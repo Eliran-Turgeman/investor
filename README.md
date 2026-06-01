@@ -2,9 +2,9 @@
 
 This repository separates deterministic data work from agent analysis.
 
-The `investor` CLI is a local-first toolkit for deterministic investor workflows. The first toolkit area is stock research data ingestion. The second is an Israeli Section 102 RSU tax estimator.
+The `investor` CLI is a local-first toolkit for deterministic investor workflows. It supports stock research data ingestion, explicit-assumption intrinsic valuation, and an Israeli Section 102 RSU tax estimator.
 
-The CLI does not answer investment questions, generate memos, challenge theses, or estimate fair value. Use the repo-local Codex skill or Copilot instructions for that agent experience.
+The CLI does not answer investment questions, generate memos, challenge theses, or decide what assumptions to use. Valuation commands only calculate deterministic outputs from an explicit assumptions JSON file.
 
 ## Install
 
@@ -46,6 +46,9 @@ $env:STOOQ_API_KEY = "..."
 investor research start MSFT
 investor research ingest MSFT
 investor research metrics MSFT
+investor assumptions init MSFT --model fcff-dcf --scenario base --output assumptions/MSFT.base.json
+investor assumptions validate assumptions/MSFT.base.json
+investor value MSFT --assumptions assumptions/MSFT.base.json --include-sensitivity
 investor rsu-tax --ticker MSFT --grant-date 2022-05-30 --shares 100 --ordinary-tax-rate 47
 ```
 
@@ -54,6 +57,11 @@ investor rsu-tax --ticker MSFT --grant-date 2022-05-30 --shares 100 --ordinary-t
 | `investor research start <ticker>` | Create the local data folder and, unless `--offline`, run initial ingestion. |
 | `investor research ingest <ticker>` | Refresh filings, provider responses, normalized data, extracted sections, metrics, and chunk index. |
 | `investor research metrics <ticker>` | Recalculate deterministic metrics from normalized local data. |
+| `investor assumptions init <ticker>` | Create a schema-valid valuation assumptions template with judgment fields set to `null`. |
+| `investor assumptions validate <path>` | Validate a valuation assumptions file and local data references. |
+| `investor value <ticker>` | Run deterministic valuation from an assumptions file. |
+| `investor value compare <ticker>` | Compare multiple valuation scenarios. |
+| `investor reverse-dcf <ticker>` | Solve one reverse DCF assumption implied by a target market value. |
 | `investor rsu-tax` | Estimate Israeli Section 102 RSU sale taxes from ticker/date inputs or manual overrides. |
 
 Offline mode is available for local-only rebuilds:
@@ -102,6 +110,18 @@ research/
 ```
 
 The CLI owns source data, normalized data, extracted filing text, metrics, and indexes. Agents or users may create separate files such as `memo.md`, `questions.md`, or valuation notes, but the CLI will not generate analysis.
+
+## Intrinsic Valuation
+
+Valuation is deterministic and assumption-driven. Initialize a template, fill the `null` judgment fields, validate it, then run the model:
+
+```powershell
+investor assumptions init MSFT --model fcff-dcf --scenario base --output assumptions/MSFT.base.json
+investor assumptions validate assumptions/MSFT.base.json
+investor value MSFT --assumptions assumptions/MSFT.base.json --format json --output valuations/MSFT.base.result.json
+```
+
+Supported v1 models are `fcff-dcf`, `owner-earnings-dcf`, `reverse-dcf`, `epv`, and `multiples`. `investor value` can emit `text`, `json`, or `markdown`, include sensitivity analysis for FCFF/reverse DCF, compare scenarios, and export agent context under `context/valuations/`.
 
 ## Israeli RSU Tax Estimate
 
@@ -163,6 +183,7 @@ For Codex global discovery, copy or sync the skill folder to:
 - USD/ILS FX is fetched from ExchangeRate-API's open endpoint unless `--fx-usd-ils` is supplied.
 - Provider data may be delayed, incomplete, restated, or unavailable.
 - The CLI is not a financial advisor, stock picker, broker, filing-grade tax tool, or trading system.
+- Valuation output is not a recommendation; it is the deterministic result of the supplied assumptions.
 - The RSU calculator is an estimate, not a filing-grade Israeli tax engine.
 
 See [docs/USAGE.md](docs/USAGE.md) for details.

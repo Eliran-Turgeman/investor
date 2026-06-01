@@ -1,6 +1,6 @@
 ---
 name: investor-toolkit
-description: "Use when Codex or another coding agent needs to work with this repository's local investor toolkit: ingest and normalize US-listed company research data, read local filings/metrics for investment analysis, or run the Israeli Section 102 RSU tax calculator. The skill tells the agent to use the deterministic `investor` CLI for data preparation, metrics, RSU tax estimates, and artifact discovery, then answer by reading and citing local files or command inputs."
+description: "Use when Codex or another coding agent needs to work with this repository's local investor toolkit: ingest and normalize US-listed company research data, read local filings/metrics, run deterministic intrinsic valuation from explicit assumptions JSON, compare valuation scenarios, run reverse DCF, or estimate Israeli Section 102 RSU tax. The skill tells the agent to use the deterministic `investor` CLI for data preparation, metrics, valuation outputs, RSU tax estimates, and artifact discovery, then answer by reading and citing local files or command inputs."
 ---
 
 # Investor Toolkit
@@ -15,15 +15,22 @@ Use `investor` for deterministic operations only:
 investor research start <TICKER>
 investor research ingest <TICKER>
 investor research metrics <TICKER>
+investor assumptions init <TICKER> --model <MODEL> --scenario <SCENARIO> --output <PATH>
+investor assumptions validate <PATH>
+investor value <TICKER> --assumptions <PATH>
+investor value compare <TICKER> --assumptions <PATH> --assumptions <PATH>
+investor reverse-dcf <TICKER> --assumptions <PATH>
 investor rsu-tax
 ```
 
-Do not expect or call CLI commands for question answering, memo writing, thesis challenge, fair-value estimates, or investment recommendations. Those are agent tasks.
+Do not expect or call CLI commands for question answering, memo writing, thesis challenge, assumption selection, or investment recommendations. Valuation commands only calculate deterministic outputs from explicit assumptions JSON; the agent owns judgment and interpretation.
 
 If `investor` is not installed, run from the repo root:
 
 ```powershell
 python -m investor_toolkit research <command> <TICKER>
+python -m investor_toolkit assumptions <command> <args>
+python -m investor_toolkit value <TICKER> --assumptions <PATH>
 python -m investor_toolkit rsu-tax <args>
 ```
 
@@ -64,6 +71,40 @@ investor research metrics <TICKER>
 - `research/<TICKER>/index/filing_chunks.jsonl`
 
 Use `rg` over `research/<TICKER>/extracted` for targeted evidence. Use `metrics.json` for numbers that need calculation or comparison.
+
+## Valuation Workflow
+
+When a user asks for valuation:
+
+1. Normalize the ticker to uppercase.
+2. Ensure local data and metrics exist using the company research workflow.
+3. Write assumptions to a JSON file before valuation:
+
+```powershell
+investor assumptions init <TICKER> --model fcff-dcf --scenario base --output assumptions/<TICKER>.base.json
+```
+
+4. Fill every `null` judgment field from local history and explicit agent/user assumptions.
+5. Validate before running:
+
+```powershell
+investor assumptions validate assumptions/<TICKER>.base.json
+```
+
+6. Run valuation and cite deterministic output:
+
+```powershell
+investor value <TICKER> --assumptions assumptions/<TICKER>.base.json --include-sensitivity --format json --output valuations/<TICKER>.base.result.json
+```
+
+Rules:
+
+- Never invent valuation outputs; use CLI result JSON as source of truth.
+- Separate source facts, assumptions, deterministic calculations, and judgment.
+- Prefer conservative/base/aggressive scenario ranges for serious valuation requests.
+- Explain which assumptions drive the result and flag high sensitivity.
+- Use `reverse-dcf` to analyze what the current market price implies.
+- Never provide direct buy/sell instructions.
 
 ## RSU Tax Workflow
 
@@ -106,7 +147,7 @@ Rules:
 - Never invent missing financial numbers.
 - Say when local data is missing, stale, ambiguous, restated, or provider-dependent.
 - Avoid direct buy/sell instructions and short-term price predictions.
-- For fair-value work, make assumptions explicit and label them as agent assumptions, not CLI output.
+- For fair-value work, write assumptions JSON first, validate it, then cite deterministic CLI valuation output.
 - For RSU tax work, cite the command inputs and label the output as an estimate.
 
 ## Agent-Owned Outputs

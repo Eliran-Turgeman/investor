@@ -1,5 +1,6 @@
 import importlib
 import io
+import math
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -104,6 +105,69 @@ class RsuTaxTests(unittest.TestCase):
         self.assertAlmostEqual(result.price_usd, 30)
         self.assertEqual(result.source, "YAHOO close on 2024-01-03")
 
+    def test_market_price_resolution_ignores_non_positive_provider_prices(self):
+        rsu_tax = importlib.import_module("investor_toolkit.rsu_tax")
+        rows = [
+            {"date": "2024-01-01", "close": 0, "source": "YAHOO"},
+            {"date": "2024-01-02", "close": -5, "source": "YAHOO"},
+            {"date": "2024-01-03", "close": "NaN", "source": "YAHOO"},
+            {"date": "2024-01-04", "close": "Infinity", "source": "YAHOO"},
+            {"date": "2024-01-05", "close": 30, "source": "YAHOO"},
+        ]
+
+        average = rsu_tax.average_grant_price(rows, date(2024, 1, 5))
+        sale = rsu_tax.latest_sale_price(rows, date(2024, 1, 5))
+
+        self.assertEqual(average.row_count, 1)
+        self.assertAlmostEqual(average.price_usd, 30)
+        self.assertAlmostEqual(sale.price_usd, 30)
+
+    def test_rsu_tax_rejects_non_finite_inputs(self):
+        rsu_tax = importlib.import_module("investor_toolkit.rsu_tax")
+
+        invalid_inputs = [
+            {"shares": math.nan},
+            {"grant_price_usd": math.inf},
+            {"sale_price_usd": math.nan},
+            {"fx_usd_ils": math.inf},
+            {"ordinary_tax_rate": math.nan},
+            {"sale_fees_ils": math.inf},
+            {"capital_gain_offset_ils": math.nan},
+            {"salary_ytd_ils": math.inf},
+        ]
+
+        for override in invalid_inputs:
+            with self.subTest(override=override):
+                values = {
+                    "shares": 100.0,
+                    "grant_price_usd": 10.0,
+                    "sale_price_usd": 30.0,
+                    "fx_usd_ils": 4.0,
+                    "ordinary_tax_rate": 0.47,
+                    "sale_fees_ils": 0.0,
+                    "capital_gain_offset_ils": 0.0,
+                    "salary_ytd_ils": 0.0,
+                }
+                values.update(override)
+                with self.assertRaises(ValueError):
+                    rsu_tax.calculate_rsu_tax(rsu_tax.RsuTaxInputs(**values))
+
+    def test_rsu_tax_rejects_sale_dates_before_grant_dates(self):
+        rsu_tax = importlib.import_module("investor_toolkit.rsu_tax")
+
+        with self.assertRaisesRegex(ValueError, "sale date cannot be before grant date"):
+            rsu_tax.calculate_rsu_tax(
+                rsu_tax.RsuTaxInputs(
+                    shares=100.0,
+                    grant_price_usd=10.0,
+                    sale_price_usd=30.0,
+                    fx_usd_ils=4.0,
+                    ordinary_tax_rate=0.47,
+                    grant_date=date(2025, 1, 1),
+                    sale_date=date(2024, 12, 31),
+                )
+            )
+
     def test_exchange_rate_provider_parses_usd_ils(self):
         providers = importlib.import_module("investor_toolkit.providers")
 
@@ -120,6 +184,20 @@ class RsuTaxTests(unittest.TestCase):
 
         self.assertAlmostEqual(rate.rate, 3.7)
         self.assertIn("ExchangeRate-API latest USD/ILS", rate.source)
+
+    def test_exchange_rate_provider_rejects_non_finite_rates(self):
+        providers = importlib.import_module("investor_toolkit.providers")
+
+        class FakeHttp:
+            def get_json(self, url, headers=None):
+                return {
+                    "result": "success",
+                    "rates": {"ILS": "NaN"},
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(providers.ProviderError):
+                providers.ExchangeRateProvider(tmp, http=FakeHttp()).get_usd_ils_rate()
 
     def test_missing_required_cli_flags_fail_non_interactively(self):
         cli = importlib.import_module("investor_toolkit.cli")

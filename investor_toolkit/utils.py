@@ -31,7 +31,7 @@ def parse_iso_date(value: str | None) -> date | None:
 
 def normalize_ticker(ticker: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9.\-]", "", ticker).upper()
-    if not cleaned:
+    if not cleaned or not re.search(r"[A-Z0-9]", cleaned):
         raise ValueError("Ticker cannot be empty.")
     return cleaned
 
@@ -46,9 +46,13 @@ def safe_divide(numerator: float | int | None, denominator: float | int | None) 
     if numerator is None or denominator in (None, 0):
         return None
     try:
-        return float(numerator) / float(denominator)
+        parsed_numerator = float(numerator)
+        parsed_denominator = float(denominator)
     except (TypeError, ValueError, ZeroDivisionError):
         return None
+    if parsed_denominator == 0 or not math.isfinite(parsed_numerator) or not math.isfinite(parsed_denominator):
+        return None
+    return parsed_numerator / parsed_denominator
 
 
 def percent(value: float | None) -> str:
@@ -61,6 +65,8 @@ def money(value: float | int | None) -> str:
     if value is None:
         return "n/a"
     value = float(value)
+    if not math.isfinite(value):
+        return "n/a"
     sign = "-" if value < 0 else ""
     value = abs(value)
     if value >= 1_000_000_000:
@@ -76,6 +82,8 @@ def compact_number(value: float | int | None) -> str:
     if value is None:
         return "n/a"
     value = float(value)
+    if not math.isfinite(value):
+        return "n/a"
     sign = "-" if value < 0 else ""
     value = abs(value)
     if value >= 1_000_000_000:
@@ -95,10 +103,9 @@ def read_json(path: Path, default: Any = None) -> Any:
 
 
 def write_json(path: Path, data: Any) -> None:
+    content = json.dumps(data, indent=2, sort_keys=True, allow_nan=False) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(data, handle, indent=2, sort_keys=True)
-        handle.write("\n")
+    path.write_text(content, encoding="utf-8")
 
 
 def write_text(path: Path, content: str) -> None:
@@ -119,4 +126,3 @@ def first_present(mapping: dict[str, Any], *keys: str) -> Any:
         if value is not None:
             return value
     return None
-

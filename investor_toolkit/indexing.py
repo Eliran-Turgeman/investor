@@ -10,9 +10,15 @@ def build_index(company_dir: Path, ticker: str) -> list[dict[str, Any]]:
     extracted_root = company_dir / "extracted"
     index_path = company_dir / "index" / "filing_chunks.jsonl"
     chunks: list[dict[str, Any]] = []
+    successful_filenames: dict[Path, set[str] | None] = {}
     if extracted_root.exists():
         for path in sorted(extracted_root.glob("**/*.md")):
             if path.name == "extraction.md":
+                continue
+            if path.parent not in successful_filenames:
+                successful_filenames[path.parent] = _successful_extraction_filenames(path.parent)
+            allowed_filenames = successful_filenames[path.parent]
+            if allowed_filenames is not None and path.name not in allowed_filenames:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
             metadata = _metadata_from_text(text, path)
@@ -36,6 +42,25 @@ def build_index(company_dir: Path, ticker: str) -> list[dict[str, Any]]:
         for chunk in chunks:
             handle.write(json.dumps(chunk, sort_keys=True) + "\n")
     return chunks
+
+
+def _successful_extraction_filenames(directory: Path) -> set[str] | None:
+    extraction_path = directory / "extraction.json"
+    if not extraction_path.exists():
+        return None
+    try:
+        rows = json.loads(extraction_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(rows, list):
+        return None
+    filenames: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if row.get("status") == "Extracted" and row.get("filename"):
+            filenames.add(str(row["filename"]))
+    return filenames
 
 
 def load_chunks(company_dir: Path) -> list[dict[str, Any]]:
