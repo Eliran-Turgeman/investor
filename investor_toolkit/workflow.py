@@ -79,8 +79,8 @@ class ResearchWorkflow:
         filings: list[FilingMetadata] = load_filing_metadata(company_dir)
         if not offline:
             self.logger.info("ProviderRequest provider=SEC event=GetFilings ticker=%s", ticker)
-            filings = self.sec.get_filings(company, company_dir, years=2, refresh=refresh)
-            result.add(f"Fetched metadata for {len(filings)} recent 10-K/10-Q filings.")
+            filings = self.sec.get_filings(company, company_dir, years=2, forms=None, refresh=refresh)
+            result.add(f"Fetched metadata for {len(filings)} SEC filings filed in the last 2 years.")
             downloaded = 0
             for filing in filings:
                 try:
@@ -124,7 +124,7 @@ class ResearchWorkflow:
                 result.add(f"Offline mode: rebuilt {len(rows)} annual SEC financial periods from local facts.")
 
         extracted = self.extract_local_filings(ticker, filings)
-        result.add(f"Extracted filing sections for {extracted} local filings.")
+        result.add(f"Extracted or converted filing text for {extracted} local filings.")
         chunks = build_index(company_dir, ticker)
         result.add(f"Indexed {len(chunks)} local filing chunks.")
         try:

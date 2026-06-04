@@ -14,6 +14,7 @@ Use `investor` for deterministic operations only:
 ```powershell
 investor research start <TICKER>
 investor research ingest <TICKER>
+investor research ingest <TICKER> --refresh
 investor research metrics <TICKER>
 investor assumptions init <TICKER> --model <MODEL> --scenario <SCENARIO> --output <PATH>
 investor assumptions validate <PATH>
@@ -37,29 +38,32 @@ python -m investor_toolkit rsu-tax <args>
 ## Company Research Workflow
 
 1. Normalize the ticker to uppercase.
-2. Check for `research/<TICKER>/company.json`.
-3. If source data is missing, run:
+2. For every live research session on a ticker, refresh local source data before answering unless the user explicitly asks for offline/local-only work:
 
 ```powershell
-investor research start <TICKER>
+investor research ingest <TICKER> --refresh
 ```
 
-4. If source data may be stale, run:
+This existing command is responsible for fetching SEC filing metadata for every SEC filing filed in the last 2 years, downloading or reusing the raw filing documents, extracting or converting filing text, rebuilding the filing index, refreshing SEC company facts, refreshing market data, and recalculating metrics.
+
+3. If network access is unavailable or the user explicitly asks for offline/local-only work, then check for `research/<TICKER>/company.json`. If source data is missing, run:
 
 ```powershell
-investor research ingest <TICKER>
+investor research start <TICKER> --offline
 ```
 
-5. If metrics are missing or stale, run:
+4. If metrics are missing or stale after offline work, run:
 
 ```powershell
 investor research metrics <TICKER>
 ```
 
-6. Read local artifacts directly. Start with:
+5. Read local artifacts directly. Start with:
 
 - `research/<TICKER>/company.json`
 - `research/<TICKER>/filings/metadata/filings.json`
+- `research/<TICKER>/filings/metadata/submissions.json`
+- `research/<TICKER>/filings/raw/**`
 - `research/<TICKER>/metrics/metrics.md`
 - `research/<TICKER>/metrics/metrics.json`
 - `research/<TICKER>/data/financials.json`
@@ -68,6 +72,7 @@ investor research metrics <TICKER>
 - `research/<TICKER>/extracted/**/risk-factors.md`
 - `research/<TICKER>/extracted/**/mdna.md`
 - `research/<TICKER>/extracted/**/notes.md`
+- `research/<TICKER>/extracted/**/document.md`
 - `research/<TICKER>/index/filing_chunks.jsonl`
 
 Use `rg` over `research/<TICKER>/extracted` for targeted evidence. Use `metrics.json` for numbers that need calculation or comparison.

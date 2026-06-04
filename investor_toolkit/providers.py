@@ -4,6 +4,7 @@ import csv
 import io
 import math
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -197,74 +198,132 @@ class SecProvider:
         company: CompanyIdentity,
         company_dir: Path,
         years: int = 2,
-        forms: tuple[str, ...] = ("10-K", "10-Q"),
+        forms: tuple[str, ...] | None = None,
         refresh: bool = False,
     ) -> list[FilingMetadata]:
         submissions = self.get_submissions(company, company_dir, refresh=refresh)
-        recent = submissions.get("filings", {}).get("recent", {})
         fiscal_year_end = str(submissions.get("fiscalYearEnd", "1231") or "1231")
         cutoff = date.today() - timedelta(days=365 * years)
         rows: list[FilingMetadata] = []
-        forms_set = set(forms)
-        length = len(recent.get("accessionNumber", []))
+        forms_set = {form.upper() for form in forms} if forms else None
         used_labels: set[str] = set()
-        for index in range(length):
-            form_type = str(_list_get(recent.get("form"), index) or "")
-            if form_type not in forms_set:
-                continue
-            filing_date = str(_list_get(recent.get("filingDate"), index) or "")
-            parsed_date = parse_iso_date(filing_date)
-            if parsed_date and parsed_date < cutoff:
-                continue
-            accession = str(_list_get(recent.get("accessionNumber"), index) or "")
-            report_date = str(_list_get(recent.get("reportDate"), index) or "")
-            primary_document = str(_list_get(recent.get("primaryDocument"), index) or "")
-            explicit_fiscal_year = _list_get(recent.get("fiscalYear"), index)
-            explicit_fiscal_period = str(_list_get(recent.get("fiscalPeriod"), index) or "")
-            if not explicit_fiscal_period:
-                explicit_fiscal_period = str(_list_get(recent.get("period"), index) or "")
-            fallback_year = int(filing_date[:4]) if filing_date[:4].isdigit() else None
-            fiscal_year, fiscal_period = self._fiscal_year_and_period(
-                form_type=form_type,
-                report_date=report_date,
-                fiscal_year_end=fiscal_year_end,
-                explicit_fiscal_year=explicit_fiscal_year,
-                explicit_fiscal_period=explicit_fiscal_period,
-                fallback_year=fallback_year,
-            )
-            accession_path = accession.replace("-", "")
-            cik_no_zero = str(int(self._normalized_cik(company)))
-            url = (
-                f"https://www.sec.gov/Archives/edgar/data/{cik_no_zero}/"
-                f"{accession_path}/{primary_document}"
-            )
-            label_year = str(fiscal_year or filing_date[:4] or "unknown")
-            label_suffix = "10K" if form_type == "10-K" else f"{fiscal_period or 'Q'}-10Q"
-            local_label = self._unique_local_label(
-                f"{label_year}-{label_suffix}",
-                used_labels,
-                accession,
-            )
-            rows.append(
-                FilingMetadata(
-                    ticker=company.ticker,
-                    cik=company.cik,
-                    accessionNumber=accession,
-                    formType=form_type,
-                    filingDate=filing_date,
-                    reportDate=report_date,
-                    fiscalYear=fiscal_year,
-                    fiscalPeriod=fiscal_period,
-                    url=url,
-                    primaryDocument=primary_document,
-                    localLabel=local_label,
+        used_accessions: set[str] = set()
+        for filing_rows in self._filing_batches(submissions, company_dir, cutoff, refresh=refresh):
+            length = len(filing_rows.get("accessionNumber", []))
+            for index in range(length):
+                form_type = str(_list_get(filing_rows.get("form"), index) or "")
+                form_type_upper = form_type.upper()
+                if forms_set is not None and form_type_upper not in forms_set:
+                    continue
+                filing_date = str(_list_get(filing_rows.get("filingDate"), index) or "")
+                parsed_date = parse_iso_date(filing_date)
+                if parsed_date is None or parsed_date < cutoff:
+                    continue
+                accession = str(_list_get(filing_rows.get("accessionNumber"), index) or "")
+                if not accession or accession in used_accessions:
+                    continue
+                used_accessions.add(accession)
+                report_date = str(_list_get(filing_rows.get("reportDate"), index) or "")
+                primary_document = str(_list_get(filing_rows.get("primaryDocument"), index) or "")
+                explicit_fiscal_year = _list_get(filing_rows.get("fiscalYear"), index)
+                explicit_fiscal_period = str(_list_get(filing_rows.get("fiscalPeriod"), index) or "")
+                if not explicit_fiscal_period:
+                    explicit_fiscal_period = str(_list_get(filing_rows.get("period"), index) or "")
+                fallback_year = int(filing_date[:4]) if filing_date[:4].isdigit() else None
+                fiscal_year, fiscal_period = self._fiscal_year_and_period(
+                    form_type=form_type,
+                    report_date=report_date,
+                    fiscal_year_end=fiscal_year_end,
+                    explicit_fiscal_year=explicit_fiscal_year,
+                    explicit_fiscal_period=explicit_fiscal_period,
+                    fallback_year=fallback_year,
                 )
-            )
+                accession_path = accession.replace("-", "")
+                cik_no_zero = str(int(self._normalized_cik(company)))
+                url = (
+                    f"https://www.sec.gov/Archives/edgar/data/{cik_no_zero}/"
+                    f"{accession_path}/{primary_document}"
+                )
+                label_year = str(fiscal_year or filing_date[:4] or "unknown")
+                label_suffix = self._filing_label_suffix(form_type_upper, fiscal_period)
+                label_base = (
+                    f"{label_year}-{label_suffix}"
+                    if form_type_upper.startswith(("10-K", "10-Q"))
+                    else f"{filing_date or label_year}-{label_suffix}"
+                )
+                local_label = self._unique_local_label(
+                    label_base,
+                    used_labels,
+                    accession,
+                )
+                rows.append(
+                    FilingMetadata(
+                        ticker=company.ticker,
+                        cik=company.cik,
+                        accessionNumber=accession,
+                        formType=form_type,
+                        filingDate=filing_date,
+                        reportDate=report_date,
+                        fiscalYear=fiscal_year,
+                        fiscalPeriod=fiscal_period,
+                        url=url,
+                        primaryDocument=primary_document,
+                        localLabel=local_label,
+                    )
+                )
         write_json(
             company_dir / "filings" / "metadata" / "filings.json",
             [row.to_dict() for row in rows],
         )
         return rows
+
+    def _filing_batches(
+        self,
+        submissions: dict[str, Any],
+        company_dir: Path,
+        cutoff: date,
+        refresh: bool = False,
+    ) -> list[dict[str, Any]]:
+        filings = submissions.get("filings", {})
+        recent = filings.get("recent", {})
+        batches = [recent] if isinstance(recent, dict) else []
+        if not self._recent_filings_may_be_truncated(recent, cutoff):
+            return batches
+        for archive_info in filings.get("files", []):
+            if not isinstance(archive_info, dict):
+                continue
+            filing_to = parse_iso_date(str(archive_info.get("filingTo", "")))
+            if filing_to is not None and filing_to < cutoff:
+                continue
+            name = str(archive_info.get("name", ""))
+            if not name:
+                continue
+            archive = self._get_submission_archive(name, company_dir, refresh=refresh)
+            archive_rows = archive.get("filings", {}).get("recent", archive)
+            if isinstance(archive_rows, dict):
+                batches.append(archive_rows)
+        return batches
+
+    def _get_submission_archive(self, name: str, company_dir: Path, refresh: bool = False) -> dict[str, Any]:
+        if "/" in name or "\\" in name:
+            raise ProviderError(f"Invalid SEC submissions archive name: {name}")
+        cache = company_dir / "data" / "provider_responses" / "sec" / name
+        url = f"https://data.sec.gov/submissions/{name}"
+        data = self._cached_json("submissions_archive", url, cache, refresh=refresh)
+        if not isinstance(data, dict):
+            raise ProviderError(f"Invalid SEC submissions archive response: {name}")
+        return data
+
+    @staticmethod
+    def _recent_filings_may_be_truncated(recent: Any, cutoff: date) -> bool:
+        if not isinstance(recent, dict):
+            return True
+        dates = [
+            parsed
+            for raw_date in recent.get("filingDate", [])
+            if (parsed := parse_iso_date(str(raw_date))) is not None
+        ]
+        return not dates or min(dates) > cutoff
 
     @staticmethod
     def _fiscal_year_and_period(
@@ -282,13 +341,28 @@ class SecProvider:
         if fiscal_year is None:
             fiscal_year = fallback_year
 
-        if form_type == "10-K":
+        normalized_form = form_type.upper()
+        if normalized_form.startswith("10-K"):
             return fiscal_year, "FY"
+
+        if not normalized_form.startswith("10-Q"):
+            return fiscal_year, ""
 
         fiscal_period = SecProvider._normalize_fiscal_period(explicit_fiscal_period)
         if not fiscal_period and parsed_report_date is not None:
             fiscal_period = SecProvider._quarter_from_report_date(parsed_report_date, fiscal_year_end)
         return fiscal_year, fiscal_period
+
+    @staticmethod
+    def _filing_label_suffix(form_type: str, fiscal_period: str) -> str:
+        normalized_form = form_type.upper()
+        amended_suffix = "A" if normalized_form.endswith("/A") else ""
+        if normalized_form.startswith("10-K"):
+            return f"10K{amended_suffix}"
+        if normalized_form.startswith("10-Q"):
+            return f"{fiscal_period or 'Q'}-10Q{amended_suffix}"
+        compact = re.sub(r"[^A-Z0-9]+", "", normalized_form)
+        return compact or "FILING"
 
     @staticmethod
     def _fiscal_year_from_report_date(report_date: date, fiscal_year_end: str) -> int:

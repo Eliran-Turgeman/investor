@@ -189,7 +189,9 @@ class FilingExtractor:
     ) -> list[ExtractionResult]:
         text = to_text(raw_path.read_text(encoding="utf-8", errors="replace"))
         output_dir.mkdir(parents=True, exist_ok=True)
-        specs = SECTION_SPECS.get(filing.formType, SECTION_SPECS["10-K"])
+        specs = _section_specs_for_form(filing.formType)
+        if specs is None:
+            return self._extract_full_document(filing, text, raw_path, output_dir, root)
         results: list[ExtractionResult] = []
         for key, (title, filename, starts, ends) in specs.items():
             section_text, start_heading, end_heading, confidence = _extract_section(text, starts, ends)
@@ -236,6 +238,59 @@ class FilingExtractor:
         write_json(output_dir / "extraction.json", [result.to_dict() for result in results])
         return results
 
+    @staticmethod
+    def _extract_full_document(
+        filing: FilingMetadata,
+        text: str,
+        raw_path: Path,
+        output_dir: Path,
+        root: Path | None = None,
+    ) -> list[ExtractionResult]:
+        filename = "document.md"
+        extracted_path = output_dir / filename
+        for stale_path in output_dir.glob("*.md"):
+            if stale_path.name != filename:
+                stale_path.unlink()
+        source_path = _relative(raw_path, root)
+        relative_extracted = _relative(extracted_path, root)
+        if text.strip():
+            body = (
+                "# Filing Document\n\n"
+                f"Ticker: {filing.ticker}\n\n"
+                f"Source: {filing.formType} filed {filing.filingDate}, accession {filing.accessionNumber}\n\n"
+                f"Source path: {source_path}\n\n"
+                "Extraction confidence: Full document\n\n"
+                "---\n\n"
+                f"{text.strip()}\n"
+            )
+            write_text(extracted_path, body)
+            results = [
+                ExtractionResult(
+                    section="Filing Document",
+                    filename=filename,
+                    status="Extracted",
+                    confidence="Full document",
+                    sourcePath=source_path,
+                    extractedPath=relative_extracted,
+                )
+            ]
+        else:
+            if extracted_path.is_file():
+                extracted_path.unlink()
+            results = [
+                ExtractionResult(
+                    section="Filing Document",
+                    filename=filename,
+                    status="Failed",
+                    confidence="None",
+                    reason="Source filing had no extractable text",
+                    sourcePath=source_path,
+                    extractedPath=relative_extracted,
+                )
+            ]
+        write_json(output_dir / "extraction.json", [result.to_dict() for result in results])
+        return results
+
 
 def extract_sections(
     document: str,
@@ -243,7 +298,7 @@ def extract_sections(
     source_path: str | Path | None = None,
 ) -> dict[str, dict[str, Any]]:
     text = to_text(document)
-    specs = SECTION_SPECS.get(form_type, SECTION_SPECS["10-K"])
+    specs = _section_specs_for_form(form_type) or SECTION_SPECS["10-K"]
     results: dict[str, dict[str, Any]] = {}
     for key, (title, _filename, starts, ends) in specs.items():
         section_text, start_heading, end_heading, confidence = _extract_section(text, starts, ends)
@@ -286,6 +341,15 @@ def to_text(content: str) -> str:
     text = re.sub(r"(?i)(item\s+\d+[a-z]?\s*[\.\-:])", r"\n\1", text)
     lines = [line.strip() for line in text.splitlines()]
     return "\n".join(line for line in lines if line)
+
+
+def _section_specs_for_form(form_type: str) -> dict[str, tuple[str, str, list[str], list[str]]] | None:
+    normalized = form_type.upper()
+    if normalized.startswith("10-K"):
+        return SECTION_SPECS["10-K"]
+    if normalized.startswith("10-Q"):
+        return SECTION_SPECS["10-Q"]
+    return None
 
 
 def _extract_section(

@@ -113,7 +113,7 @@ def _section_from_path(path: Path) -> str:
 
 def _source_from_metadata(metadata: dict[str, str]) -> tuple[str, str, str]:
     source = metadata.get("source", "")
-    form_match = re.search(r"\b(10-K|10-Q|8-K)\b", source, flags=re.IGNORECASE)
+    form_match = re.search(r"^\s*(.+?)\s+filed\s+", source, flags=re.IGNORECASE)
     date_match = re.search(r"filed\s+(\d{4}-\d{2}-\d{2})", source)
     accession_match = re.search(r"accession\s+([0-9\-]+)", source)
     return (

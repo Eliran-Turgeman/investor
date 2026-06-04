@@ -58,7 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--refresh", action="store_true", help="Refresh cached provider responses.")
     start.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
 
-    ingest = research_subparsers.add_parser("ingest", help="Refresh source data for a ticker.")
+    ingest = research_subparsers.add_parser(
+        "ingest",
+        help="Refresh source data and fetch SEC filings filed in the last 2 years.",
+    )
     ingest.add_argument("ticker")
     ingest.add_argument("--offline", action="store_true", help="Rebuild from local cached files only.")
     ingest.add_argument("--refresh", action="store_true", help="Refresh cached provider responses.")

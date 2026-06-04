@@ -3,12 +3,128 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 
 class ProviderFinancialRegressionTests(unittest.TestCase):
+    def test_sec_filing_parser_defaults_to_all_forms_in_two_year_window(self):
+        providers = importlib.import_module("investor_toolkit.providers")
+        models = importlib.import_module("investor_toolkit.models")
+
+        recent_8k = date.today() - timedelta(days=1)
+        recent_10q = date.today() - timedelta(days=30)
+        recent_form4 = date.today() - timedelta(days=45)
+        old_10k = date.today() - timedelta(days=800)
+        submissions = {
+            "fiscalYearEnd": "1231",
+            "filings": {
+                "recent": {
+                    "accessionNumber": [
+                        "0000000000-26-000001",
+                        "0000000000-26-000002",
+                        "0000000000-26-000003",
+                        "0000000000-23-000004",
+                    ],
+                    "form": ["8-K", "10-Q", "4", "10-K"],
+                    "filingDate": [
+                        recent_8k.isoformat(),
+                        recent_10q.isoformat(),
+                        recent_form4.isoformat(),
+                        old_10k.isoformat(),
+                    ],
+                    "reportDate": [
+                        recent_8k.isoformat(),
+                        recent_10q.isoformat(),
+                        recent_form4.isoformat(),
+                        old_10k.isoformat(),
+                    ],
+                    "primaryDocument": ["eightk.htm", "quarter.htm", "ownership.xml", "annual.htm"],
+                }
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            research_root = Path(tmpdir) / "research"
+            company_dir = research_root / "ACME"
+            provider = providers.SecProvider(
+                Path(tmpdir),
+                http=_StaticJsonHttp(submissions),
+                research_root=research_root,
+            )
+
+            filings = provider.get_filings(
+                models.CompanyIdentity(ticker="ACME", name="Acme", cik="0000000000"),
+                company_dir,
+                years=2,
+            )
+            quarterly_filings = provider.get_filings(
+                models.CompanyIdentity(ticker="ACME", name="Acme", cik="0000000000"),
+                company_dir,
+                years=2,
+                forms=("10-Q",),
+            )
+
+        self.assertEqual([filing.formType for filing in filings], ["8-K", "10-Q", "4"])
+        self.assertEqual(filings[0].localLabel, f"{recent_8k.isoformat()}-8K")
+        self.assertEqual(filings[2].localLabel, f"{recent_form4.isoformat()}-4")
+        self.assertEqual(filings[0].fiscalPeriod, "")
+        self.assertEqual([filing.formType for filing in quarterly_filings], ["10-Q"])
+
+    def test_sec_filing_parser_reads_archives_when_recent_does_not_cover_two_year_window(self):
+        providers = importlib.import_module("investor_toolkit.providers")
+        models = importlib.import_module("investor_toolkit.models")
+
+        recent_date = date.today() - timedelta(days=1)
+        archived_date = date.today() - timedelta(days=500)
+        submissions = {
+            "fiscalYearEnd": "1231",
+            "filings": {
+                "recent": {
+                    "accessionNumber": ["0000000000-26-000001"],
+                    "form": ["8-K"],
+                    "filingDate": [recent_date.isoformat()],
+                    "reportDate": [recent_date.isoformat()],
+                    "primaryDocument": ["eightk.htm"],
+                },
+                "files": [
+                    {
+                        "name": "CIK0000000000-submissions-001.json",
+                        "filingFrom": archived_date.isoformat(),
+                        "filingTo": archived_date.isoformat(),
+                        "filingCount": 1,
+                    }
+                ],
+            },
+        }
+        archive = {
+            "accessionNumber": ["0000000000-25-000002"],
+            "form": ["10-Q"],
+            "filingDate": [archived_date.isoformat()],
+            "reportDate": [archived_date.isoformat()],
+            "primaryDocument": ["quarter.htm"],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            research_root = Path(tmpdir) / "research"
+            company_dir = research_root / "ACME"
+            http = _SecSubmissionsHttp(submissions, {"CIK0000000000-submissions-001.json": archive})
+            provider = providers.SecProvider(
+                Path(tmpdir),
+                http=http,
+                research_root=research_root,
+            )
+
+            filings = provider.get_filings(
+                models.CompanyIdentity(ticker="ACME", name="Acme", cik="0000000000"),
+                company_dir,
+                years=2,
+            )
+
+        self.assertEqual([filing.formType for filing in filings], ["8-K", "10-Q"])
+        self.assertIn("CIK0000000000-submissions-001.json", http.urls[-1])
+
     def test_10q_labels_use_actual_fiscal_quarters(self):
         providers = importlib.import_module("investor_toolkit.providers")
         models = importlib.import_module("investor_toolkit.models")
@@ -576,6 +692,20 @@ class _StaticJsonHttp:
 
     def get_json(self, url, headers=None):
         return self.data
+
+
+class _SecSubmissionsHttp:
+    def __init__(self, submissions, archives):
+        self.submissions = submissions
+        self.archives = archives
+        self.urls = []
+
+    def get_json(self, url, headers=None):
+        self.urls.append(url)
+        for name, data in self.archives.items():
+            if url.endswith(name):
+                return data
+        return self.submissions
 
 
 class _YahooChartHttp:

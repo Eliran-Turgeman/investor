@@ -139,6 +139,45 @@ def test_index_skips_markdown_not_marked_extracted(tmp_path):
     assert all("Stale risk factor text" not in chunk["text"] for chunk in chunks)
 
 
+def test_unsupported_filing_converts_full_document_for_indexing(tmp_path):
+    company_dir = tmp_path / "research" / "TST"
+    raw_path = company_dir / "filings" / "raw" / "2026-06-02-8K.html"
+    output_dir = company_dir / "extracted" / "2026-06-02-8K"
+    raw_path.parent.mkdir(parents=True)
+    raw_path.write_text(
+        """
+        <html><body>
+        <h1>Item 2.02 Results of Operations and Financial Condition</h1>
+        <p>Revenue increased and operating margin changed after the quarterly report.</p>
+        </body></html>
+        """,
+        encoding="utf-8",
+    )
+    filing = FilingMetadata(
+        ticker="TST",
+        cik="0000000000",
+        accessionNumber="0000000000-26-000001",
+        formType="8-K",
+        filingDate="2026-06-02",
+        reportDate="2026-06-02",
+        fiscalYear=2026,
+        fiscalPeriod="",
+        url="",
+        primaryDocument="2026-06-02-8K.html",
+        localLabel="2026-06-02-8K",
+    )
+
+    results = FilingExtractor().extract(filing, raw_path, output_dir, root=tmp_path)
+    chunks = build_index(company_dir, "TST")
+
+    assert results[0].status == "Extracted"
+    assert results[0].filename == "document.md"
+    assert (output_dir / "document.md").exists()
+    assert chunks[0]["formType"] == "8-K"
+    assert chunks[0]["section"] == "document"
+    assert "Revenue increased" in chunks[0]["text"]
+
+
 def test_index_keeps_legacy_markdown_when_extraction_json_is_corrupt(tmp_path):
     company_dir = tmp_path / "research" / "TST"
     filing_dir = company_dir / "extracted" / "2025-10K"
