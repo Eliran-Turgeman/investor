@@ -4,11 +4,23 @@ The `investor` CLI is the deterministic toolkit layer. It ingests and normalizes
 
 ## Install
 
+From the latest GitHub release. This installs both the CLI and the global Codex skill:
+
 ```powershell
-python -m venv .venv
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/Eliran-Turgeman/investor/releases/latest/download/install.ps1 | iex"
+```
+
+CLI-only opt-out:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP 'investor-install.ps1'; irm https://github.com/Eliran-Turgeman/investor/releases/latest/download/install.ps1 -OutFile $p; & $p -SkipCodexSkill"
+```
+
+From a source checkout:
+
+```powershell
+.\scripts\setup.ps1
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e .
 investor --help
 ```
 
@@ -34,6 +46,7 @@ SEC is canonical for filings, company identity, filing metadata, and XBRL facts.
 Current command surface:
 
 ```text
+investor quickstart
 investor research start
 investor research ingest
 investor research metrics
@@ -46,6 +59,25 @@ investor rsu-tax
 ```
 
 There are intentionally no CLI commands for `ask`, `memo`, `challenge`, or investment recommendations. Valuation commands calculate from explicit assumptions; the agent/user owns the assumptions and interpretation.
+
+### `investor quickstart <ticker>`
+
+Runs the first useful company-research path and prints agent-ready next steps.
+
+```powershell
+investor quickstart MSFT
+investor quickstart MSFT --offline
+investor quickstart MSFT --refresh
+```
+
+Expected actions:
+
+- Require `SEC_USER_AGENT` for online runs before provider requests.
+- Create the local ticker workspace.
+- Run the same online ingestion path as `investor research start <ticker>` unless `--offline` is supplied.
+- Print key artifact paths and copy-ready agent prompts.
+
+Use this for a friend's first run or anytime you want a guided setup for one ticker.
 
 ### `investor research start <ticker>`
 

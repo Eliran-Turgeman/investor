@@ -49,6 +49,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    quickstart = subparsers.add_parser(
+        "quickstart",
+        help="Bootstrap a ticker research folder and print agent-ready next steps.",
+    )
+    quickstart.add_argument("ticker")
+    quickstart.add_argument("--offline", action="store_true", help="Create local artifacts without network calls.")
+    quickstart.add_argument("--refresh", action="store_true", help="Refresh cached provider responses.")
+    quickstart.add_argument("--research-root", default=argparse.SUPPRESS, help="Directory for ticker research folders.")
+
     research = subparsers.add_parser("research", help="Research data ingestion and metrics commands.")
     research_subparsers = research.add_subparsers(dest="research_command", required=True)
 
@@ -128,7 +137,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     research_root = getattr(args, "research_root", None) or os.getenv("RESEARCH_HOME")
     try:
-        if args.command == "research":
+        if args.command == "quickstart":
+            if not args.offline:
+                _require_sec_user_agent()
+            workflow = ResearchWorkflow(Path.cwd(), research_root=research_root)
+            result = workflow.start(args.ticker, offline=args.offline, refresh=args.refresh)
+            _print_result(result)
+            _print_quickstart_next_steps(result, offline=args.offline)
+        elif args.command == "research":
             workflow = ResearchWorkflow(Path.cwd(), research_root=research_root)
             if args.research_command == "start":
                 result = workflow.start(args.ticker, offline=args.offline, refresh=args.refresh)
@@ -230,6 +246,36 @@ def _print_result(result: WorkflowResult) -> None:
         print(message)
     for warning in result.warnings:
         print(f"Warning: {warning}", file=sys.stderr)
+
+
+def _require_sec_user_agent() -> None:
+    user_agent = os.getenv("SEC_USER_AGENT", "").strip()
+    if user_agent and "set sec_user_agent" not in user_agent.lower():
+        return
+    raise ValueError(
+        "SEC_USER_AGENT is required for online quickstart. "
+        'Set it first, for example: $env:SEC_USER_AGENT = "InvestorResearchAssistant contact@example.com"'
+    )
+
+
+def _print_quickstart_next_steps(result: WorkflowResult, offline: bool = False) -> None:
+    ticker = result.ticker
+    company_dir = result.company_dir
+    print()
+    print("Quickstart artifact paths:")
+    print(f"- Research folder: {company_dir}")
+    print(f"- Company identity: {company_dir / 'company.json'}")
+    print(f"- Metrics summary: {company_dir / 'metrics' / 'metrics.md'}")
+    print(f"- Extracted filing sections: {company_dir / 'extracted'}")
+    print(f"- Filing chunk index: {company_dir / 'index' / 'filing_chunks.jsonl'}")
+    if offline:
+        print()
+        print("Offline mode only created the local workspace. Run online quickstart or ingest to fetch data.")
+    print()
+    print("Copy-ready agent prompts:")
+    print(f"- Use the investor-toolkit skill. Refresh local data for {ticker}, then summarize the latest filing risks with citations.")
+    print(f"- Use the investor-toolkit skill. Build a business quality memo for {ticker} from local filings and metrics.")
+    print(f"- Use the investor-toolkit skill. Draft a bear case for {ticker} and separate evidence from interpretation.")
 
 
 def _write_or_print(content: str, output_path: str | None) -> None:

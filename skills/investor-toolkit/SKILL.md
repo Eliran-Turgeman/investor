@@ -12,6 +12,7 @@ The CLI is the deterministic toolkit layer. The agent performs analysis by readi
 Use `investor` for deterministic operations only:
 
 ```powershell
+investor quickstart <TICKER>
 investor research start <TICKER>
 investor research ingest <TICKER>
 investor research ingest <TICKER> --refresh
@@ -38,7 +39,7 @@ python -m investor_toolkit rsu-tax <args>
 ## Company Research Workflow
 
 1. Normalize the ticker to uppercase.
-2. For every live research session on a ticker, refresh local source data before answering unless the user explicitly asks for offline/local-only work:
+2. For first-time local setup, `investor quickstart <TICKER>` is acceptable. For every live research session on an existing ticker, refresh local source data before answering unless the user explicitly asks for offline/local-only work:
 
 ```powershell
 investor research ingest <TICKER> --refresh

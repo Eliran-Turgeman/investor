@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Run tests
+        run: python -m unittest
+
+      - name: Validate PowerShell scripts
+        shell: pwsh
+        run: |
+          $scriptPaths = @(
+            "install.ps1",
+            "scripts/setup.ps1",
+            "scripts/doctor.ps1",
+            "scripts/publish-release.ps1"
+          )
+          foreach ($scriptPath in $scriptPaths) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $scriptPath), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "${scriptPath}: $($_.Message)" }
+              exit 1
+            }
+          }
+
+      - name: Build release package
+        shell: pwsh
+        run: |
+          $dist = Join-Path (Get-Location) "dist"
+          $stage = Join-Path $dist "stage"
+          Remove-Item -LiteralPath $dist -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          foreach ($directory in @("investor_toolkit", "skills", "scripts", "examples", "docs", "tests")) {
+            Copy-Item -Path $directory -Destination (Join-Path $stage $directory) -Recurse -Force
+          }
+
+          foreach ($file in @("README.md", "AGENTS.md", "pyproject.toml", "install.ps1")) {
+            Copy-Item -Path $file -Destination $stage -Force
+          }
+
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage ".github") | Out-Null
+          Copy-Item -Path ".github/copilot-instructions.md" -Destination (Join-Path $stage ".github/copilot-instructions.md") -Force
+
+          $entries = Get-ChildItem -Force $stage
+          Compress-Archive -Path $entries.FullName -DestinationPath (Join-Path $dist "investor-toolkit.zip") -Force
+          Copy-Item -Path "install.ps1" -Destination (Join-Path $dist "install.ps1") -Force
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $repo = "${{ github.repository }}"
+          gh release view $tag --repo $repo *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag "dist/investor-toolkit.zip" "dist/install.ps1" --repo $repo --clobber
+          } else {
+            gh release create $tag "dist/investor-toolkit.zip" "dist/install.ps1" --repo $repo --title "Investor Toolkit $tag" --generate-notes
+          }

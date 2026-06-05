@@ -1,0 +1,111 @@
+# Investor Toolkit Agent Guide
+
+This repository separates deterministic data/calculation work from agent analysis. Use the `investor` CLI to prepare local artifacts and calculate explicit models, then read files and command output to answer the user.
+
+## Operating Boundary
+
+Use `investor` only for deterministic operations:
+
+```powershell
+investor quickstart <TICKER>
+investor research start <TICKER>
+investor research ingest <TICKER>
+investor research ingest <TICKER> --refresh
+investor research metrics <TICKER>
+investor assumptions init <TICKER> --model <MODEL> --scenario <SCENARIO> --output <PATH>
+investor assumptions validate <PATH>
+investor value <TICKER> --assumptions <PATH>
+investor value compare <TICKER> --assumptions <PATH> --assumptions <PATH>
+investor reverse-dcf <TICKER> --assumptions <PATH>
+investor rsu-tax
+```
+
+Do not expect CLI commands for question answering, memo writing, thesis challenge, assumption selection, or investment recommendations. The agent owns interpretation and narrative.
+
+If `investor` is not installed, run from the repo root:
+
+```powershell
+python -m investor_toolkit <command> <args>
+```
+
+## Company Research
+
+For first-time local setup, prefer:
+
+```powershell
+investor quickstart MSFT
+```
+
+For live research, refresh local source data before answering unless the user asks for offline/local-only work:
+
+```powershell
+investor research ingest MSFT --refresh
+```
+
+If network access is unavailable, use `--offline` and clearly say when source data is missing or stale.
+
+Read local artifacts directly, starting with:
+
+- `research/<TICKER>/company.json`
+- `research/<TICKER>/filings/metadata/filings.json`
+- `research/<TICKER>/metrics/metrics.md`
+- `research/<TICKER>/metrics/metrics.json`
+- `research/<TICKER>/data/financials.json`
+- `research/<TICKER>/data/prices.json`
+- `research/<TICKER>/extracted/**/business.md`
+- `research/<TICKER>/extracted/**/risk-factors.md`
+- `research/<TICKER>/extracted/**/mdna.md`
+- `research/<TICKER>/index/filing_chunks.jsonl`
+
+Use `rg` over extracted filings for targeted evidence.
+
+## Valuation
+
+Always write assumptions to JSON before valuation, validate them, then cite deterministic valuation output:
+
+```powershell
+investor assumptions init MSFT --model fcff-dcf --scenario base --output assumptions/MSFT.base.json
+investor assumptions validate assumptions/MSFT.base.json
+investor value MSFT --assumptions assumptions/MSFT.base.json --include-sensitivity --format json --output valuations/MSFT.base.result.json
+```
+
+Separate source facts, assumptions, deterministic calculations, and judgment. Never invent valuation outputs or give direct buy/sell instructions.
+
+## RSU Tax
+
+For Israeli Section 102 RSU estimates, use:
+
+```powershell
+investor rsu-tax --ticker MSFT --grant-date 2022-05-30 --shares 100 --ordinary-tax-rate 47
+```
+
+Treat the output as an estimate, not tax advice. Cite command inputs and call out manual overrides.
+
+## SEC User Agent
+
+Online SEC requests require a descriptive user agent:
+
+```powershell
+$env:SEC_USER_AGENT = "InvestorResearchAssistant contact@example.com"
+```
+
+Do not require the user's personal email.
+
+## Answering Standards
+
+- Treat SEC filings and deterministic metrics as primary evidence.
+- Cite local filing sections, metrics files, data files, or command inputs/output for material claims.
+- Never invent missing financial numbers.
+- Say when data is missing, stale, ambiguous, restated, or provider-dependent.
+- Avoid direct buy/sell instructions and short-term price predictions.
+
+## Agent-Owned Outputs
+
+If asked to create analysis artifacts, write them as agent-owned files such as:
+
+- `research/<TICKER>/memo.md`
+- `research/<TICKER>/questions.md`
+- `research/<TICKER>/thesis-log.md`
+- `research/<TICKER>/valuation.md`
+
+Do not describe those files as CLI-generated artifacts.
