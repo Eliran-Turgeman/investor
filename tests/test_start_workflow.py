@@ -122,7 +122,7 @@ class OfflineStartWorkflowTests(unittest.TestCase):
 
             output = stdout.getvalue()
             self.assertIn("Quickstart artifact paths:", output)
-            self.assertIn(str(ticker_dir / "company.json"), output)
+            self.assertIn(str((ticker_dir / "company.json").resolve()), output)
             self.assertIn("Copy-ready agent prompts:", output)
             self.assertIn("Use the investor-toolkit skill.", output)
             self.assertIn("Offline mode only created the local workspace.", output)

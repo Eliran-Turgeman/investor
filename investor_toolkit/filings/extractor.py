@@ -330,8 +330,11 @@ def extract_sections(
 def to_text(content: str) -> str:
     if "<" in content and ">" in content:
         parser = _HTMLTextExtractor()
-        parser.feed(content)
-        text = parser.text()
+        try:
+            parser.feed(_neutralize_malformed_marked_sections(content))
+            text = parser.text()
+        except AssertionError:
+            text = _coarse_html_to_text(content)
     else:
         text = content
     text = html.unescape(text)
@@ -341,6 +344,25 @@ def to_text(content: str) -> str:
     text = re.sub(r"(?i)(item\s+\d+[a-z]?\s*[\.\-:])", r"\n\1", text)
     lines = [line.strip() for line in text.splitlines()]
     return "\n".join(line for line in lines if line)
+
+
+def _coarse_html_to_text(content: str) -> str:
+    text = re.sub(
+        r"(?is)<(script|style|ix:header)\b[^>]*>.*?</\1\s*>",
+        "\n",
+        content,
+    )
+    text = re.sub(
+        r"(?i)</?(?:address|article|aside|blockquote|br|caption|div|footer|h[1-6]|"
+        r"header|li|p|section|table|td|th|tr)\b[^>]*>",
+        "\n",
+        text,
+    )
+    return re.sub(r"(?s)<[^>]*>", " ", text)
+
+
+def _neutralize_malformed_marked_sections(content: str) -> str:
+    return re.sub(r"(?i)<!\[(?!CDATA\[)", "&lt;![", content)
 
 
 def _section_specs_for_form(form_type: str) -> dict[str, tuple[str, str, list[str], list[str]]] | None:

@@ -1,6 +1,6 @@
 import json
 
-from investor_toolkit.filings.extractor import FilingExtractor, extract_sections
+from investor_toolkit.filings.extractor import FilingExtractor, extract_sections, to_text
 from investor_toolkit.indexing import build_index
 from investor_toolkit.models import FilingMetadata
 
@@ -176,6 +176,15 @@ def test_unsupported_filing_converts_full_document_for_indexing(tmp_path):
     assert chunks[0]["formType"] == "8-K"
     assert chunks[0]["section"] == "document"
     assert "Revenue increased" in chunks[0]["text"]
+
+
+def test_to_text_falls_back_for_malformed_html_declarations():
+    document = "<html><body><p>Before text</p><![\u039fd broken <p>After text</p></body></html>"
+
+    text = to_text(document)
+
+    assert "Before text" in text
+    assert "After text" in text
 
 
 def test_index_keeps_legacy_markdown_when_extraction_json_is_corrupt(tmp_path):
