@@ -61,6 +61,7 @@ investor assumptions validate
 investor value
 investor value compare
 investor reverse-dcf
+investor onboarding init
 investor portfolio init
 investor portfolio import
 investor portfolio export
@@ -94,15 +95,63 @@ investor-mcp `
 
 The MCP server is a thin adapter over the same application services used by the CLI. It exposes:
 
-- tools for portfolio context, company artifact discovery, research refresh, assumptions initialization and validation, valuation, scenario comparison, portfolio valuation, and portfolio signals
-- resources for local portfolio and company research artifacts
-- prompts for portfolio review, company deep dive, thesis challenge, and candidate briefs
+- tools for investor profile status/onboarding, portfolio context, company artifact discovery, research refresh, assumptions initialization and validation, valuation, scenario comparison, portfolio valuation, and portfolio signals
+- resources for local investor profile, portfolio, and company research artifacts
+- prompts for investor onboarding, portfolio review, company deep dive, thesis challenge, and candidate briefs
 
 Tool outputs use a stable operation envelope with `schemaVersion`, `operation`, `status`, `generatedAt`, `data`, `warnings`, `errors`, `sourcePaths`, `artifacts`, and `nextActions`.
 
 The MCP server does not provide investment recommendations or broker/trading actions. It exposes deterministic data and calculations for an assistant to interpret.
 
+Profile gating:
+
+- `get_profile_status` reports `onboardingRequired`, existing profile artifacts, and missing profile artifacts.
+- `investor://profile/status` is a virtual resource that exists even before onboarding files are written.
+- `get_portfolio_context` includes `profileStatus` and returns onboarding next actions when profile artifacts are missing.
+- MCP prompt `investor_onboarding` tells assistants to ask only broad questions, call `init_investor_profile`, and avoid a long questionnaire.
+
 `scripts/setup.ps1` registers this server in `%USERPROFILE%\.codex\config.toml` by default with `SEC_USER_AGENT = "InvestorResearchAssistant contact@example.com"` so online SEC refresh tools can run after Codex is restarted.
+
+### `investor onboarding init`
+
+Creates starter investor profile and policy artifacts without a long questionnaire.
+
+```powershell
+investor onboarding init
+```
+
+Optional broad overrides:
+
+```powershell
+investor onboarding init `
+  --focus software `
+  --focus ai_related_hardware_or_hardware_adjacent_businesses `
+  --external-exposure MSFT:50000:USD:RSU `
+  --external-exposure PANW:75000:USD:RSU `
+  --other-portfolio index_portfolio:250000:NIS
+```
+
+Expected outputs in `portfolio/`:
+
+```text
+investor_policy.md
+goals.json
+preferences.json
+position_sizing.json
+valuation_policy.json
+risk_policy.json
+decision_process.json
+operating_preferences.json
+external_exposure.json
+onboarding_notes.md
+thesis_template.md
+bear_case_template.md
+theses/README.md
+rejected/README.md
+decisions/README.md
+```
+
+By default, existing profile files are not overwritten. Use `--overwrite` only when you intentionally want to regenerate them. The command writes broad defaults such as long-term horizon, valuation discipline, high-signal monthly briefs, and short-brief-first research depth. It does not provide investment recommendations.
 
 ### `investor quickstart <ticker>`
 
@@ -434,6 +483,18 @@ assumptions/
 valuations/
   MSFT.base.result.json
 portfolio/
+  investor_policy.md
+  goals.json
+  preferences.json
+  position_sizing.json
+  valuation_policy.json
+  risk_policy.json
+  decision_process.json
+  operating_preferences.json
+  external_exposure.json
+  onboarding_notes.md
+  thesis_template.md
+  bear_case_template.md
   portfolio.xlsx
   holdings.json
   watchlist.json

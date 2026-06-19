@@ -60,7 +60,7 @@ For MCP-capable assistants, run the local stdio MCP server from the installed fo
 investor-mcp --workspace-root .
 ```
 
-The MCP server exposes the same deterministic application services as the CLI: portfolio context, artifact resources, company research refresh, assumptions validation, valuation, scenario comparison, and portfolio signals.
+The MCP server exposes the same deterministic application services as the CLI: profile status/onboarding, portfolio context, artifact resources, company research refresh, assumptions validation, valuation, scenario comparison, and portfolio signals.
 
 Source checkout CLI-only opt-out:
 
@@ -73,7 +73,7 @@ Source checkout CLI-only opt-out:
 After committing changes, publish a release by pushing a version tag:
 
 ```powershell
-.\scripts\publish-release.ps1 -Version 0.3.0
+.\scripts\publish-release.ps1 -Version 0.4.0
 ```
 
 GitHub Actions will run tests and publish two release assets:
@@ -90,6 +90,7 @@ investor research metrics MSFT
 investor assumptions init MSFT --model fcff-dcf --scenario base --output assumptions/MSFT.base.json
 investor assumptions validate assumptions/MSFT.base.json
 investor value MSFT --assumptions assumptions/MSFT.base.json --include-sensitivity
+investor onboarding init
 investor portfolio init --output portfolio/portfolio.xlsx
 investor portfolio import --workbook portfolio/portfolio.xlsx
 investor portfolio value
@@ -129,6 +130,18 @@ The CLI owns source data, normalized data, extracted filing text, metrics, index
 Portfolio artifacts live under `portfolio/` by default:
 
 ```text
+investor_policy.md
+goals.json
+preferences.json
+position_sizing.json
+valuation_policy.json
+risk_policy.json
+decision_process.json
+operating_preferences.json
+external_exposure.json
+onboarding_notes.md
+thesis_template.md
+bear_case_template.md
 portfolio.xlsx
 holdings.json
 watchlist.json
@@ -137,6 +150,8 @@ rules.json
 signals.json
 valuation_audit.json
 ```
+
+Run `investor onboarding init` to create the profile and policy artifacts. It uses broad defaults and a few optional flags instead of a long questionnaire.
 
 The workbook is the user-facing editing surface. Import it before recalculating when you change holdings, watchlist rows, or user fair values in Excel. Signals are deterministic diagnostics such as `Opportunity`, `Watch`, `Review`, or `No decision`; they are not broker instructions.
 
@@ -156,7 +171,7 @@ The package also includes a no-dependency MCP stdio server and registers it with
 investor-mcp
 ```
 
-MCP tools are intentionally deterministic and artifact-oriented. They do not issue buy/sell/hold recommendations; the assistant still owns interpretation, thesis challenge, and narrative.
+MCP tools are intentionally deterministic and artifact-oriented. They do not issue buy/sell/hold recommendations; the assistant still owns interpretation, thesis challenge, and narrative. `investor://profile/status` is always available; assistants should call `get_profile_status` at the start of personalized portfolio or candidate workflows and run `init_investor_profile` when `onboardingRequired` is true. Profile resources are exposed under `investor://profile/...` after onboarding files exist.
 
 ## Provider Limits
 

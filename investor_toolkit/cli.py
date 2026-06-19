@@ -110,6 +110,45 @@ def build_parser() -> argparse.ArgumentParser:
     reverse_dcf.add_argument("--export-agent-context", action="store_true")
     reverse_dcf.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
 
+    onboarding = subparsers.add_parser("onboarding", help="Lightweight investor profile onboarding.")
+    onboarding_subparsers = onboarding.add_subparsers(dest="onboarding_command", required=True)
+
+    onboarding_init = onboarding_subparsers.add_parser(
+        "init",
+        help="Create starter investor profile and policy artifacts.",
+    )
+    onboarding_init.add_argument("--portfolio-dir", default="portfolio", help="Directory for profile artifacts.")
+    onboarding_init.add_argument("--benchmark", default="S&P 500")
+    onboarding_init.add_argument("--horizon", default="5-10", help="Investment horizon, for example 5-10 or 10.")
+    onboarding_init.add_argument("--ideas-per-month", type=int, default=3)
+    onboarding_init.add_argument("--margin-of-safety", default="30%", help="Default required margin of safety.")
+    onboarding_init.add_argument("--max-position-size", default="30%", help="Maximum single-stock active portfolio size.")
+    onboarding_init.add_argument("--focus", action="append", default=[], help="Business area the user understands. Repeatable.")
+    onboarding_init.add_argument("--avoid", action="append", default=[], help="Business area, geography, or risk to avoid. Repeatable.")
+    onboarding_init.add_argument(
+        "--external-exposure",
+        action="append",
+        default=[],
+        help="External exposure as TICKER:AMOUNT:CURRENCY[:TYPE], for example MSFT:50000:USD:RSU.",
+    )
+    onboarding_init.add_argument(
+        "--other-portfolio",
+        action="append",
+        default=[],
+        help="Other portfolio as NAME:AMOUNT:CURRENCY, for example index:250000:NIS.",
+    )
+    onboarding_init.add_argument(
+        "--external-exposure-affects-active-portfolio",
+        action="store_true",
+        help="Count external exposure when thinking about active portfolio sizing.",
+    )
+    onboarding_init.add_argument("--overwrite", action="store_true", help="Overwrite existing profile artifacts.")
+    onboarding_init.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Ask a few broad questions before writing profile artifacts.",
+    )
+
     portfolio = subparsers.add_parser("portfolio", help="Portfolio workbook and deterministic signal commands.")
     portfolio_subparsers = portfolio.add_subparsers(dest="portfolio_command", required=True)
 
@@ -246,6 +285,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             if result.data.get("model") != "reverse-dcf":
                 raise ValueError("reverse-dcf requires an assumptions file with model reverse-dcf")
             _write_or_print(render_valuation_result(result.data, args.format), args.output)
+        elif args.command == "onboarding":
+            if args.onboarding_command == "init":
+                _resolve_interactive_onboarding(args)
+                horizon_min, horizon_max = _parse_horizon_range(args.horizon)
+                app = _app(args, research_root=research_root, portfolio_dir=args.portfolio_dir)
+                result = app.profile.init(
+                    benchmark=args.benchmark,
+                    horizon_min_years=horizon_min,
+                    horizon_max_years=horizon_max,
+                    ideas_per_month=args.ideas_per_month,
+                    required_margin_of_safety=_parse_cli_rate(args.margin_of_safety, "margin-of-safety"),
+                    max_position_size=_parse_cli_rate(args.max_position_size, "max-position-size"),
+                    focus_areas=args.focus,
+                    avoid_areas=args.avoid,
+                    external_exposures=[_parse_external_exposure(value) for value in args.external_exposure],
+                    other_portfolios=[_parse_other_portfolio(value) for value in args.other_portfolio],
+                    external_exposure_affects_active_portfolio=args.external_exposure_affects_active_portfolio,
+                    overwrite=args.overwrite,
+                )
+                print(render_portfolio_summary(result.data), end="")
+            else:
+                parser.error(f"Unknown onboarding command: {args.onboarding_command}")
         elif args.command == "portfolio":
             app = _portfolio_app(args, research_root=research_root)
             if args.portfolio_command == "init":
@@ -390,6 +451,98 @@ def _write_or_print(content: str, output_path: str | None) -> None:
         print(f"Wrote output: {path}")
     else:
         print(content, end="")
+
+
+def _resolve_interactive_onboarding(args: argparse.Namespace) -> None:
+    if not getattr(args, "interactive", False):
+        return
+    if not sys.stdin.isatty():
+        raise ValueError("--interactive requires a terminal")
+    args.benchmark = _prompt_default("Benchmark", args.benchmark)
+    args.horizon = _prompt_default("Time horizon in years", args.horizon)
+    focus = _prompt_default("Businesses you understand, comma-separated", ", ".join(args.focus or ["software", "AI infrastructure"]))
+    args.focus = [item.strip() for item in focus.split(",") if item.strip()]
+    args.ideas_per_month = int(_prompt_default("High-signal ideas per month", str(args.ideas_per_month)))
+    args.external_exposure_affects_active_portfolio = _prompt_yes_no(
+        "Should external RSUs/portfolios affect this active portfolio?",
+        args.external_exposure_affects_active_portfolio,
+    )
+
+
+def _prompt_default(label: str, default: str) -> str:
+    raw = input(f"{label} [{default}]: ").strip()
+    return raw or default
+
+
+def _prompt_yes_no(label: str, default: bool) -> bool:
+    suffix = "Y/n" if default else "y/N"
+    raw = input(f"{label} [{suffix}]: ").strip().lower()
+    if not raw:
+        return default
+    return raw in {"y", "yes", "true", "1"}
+
+
+def _parse_horizon_range(value: str) -> tuple[int, int]:
+    cleaned = str(value or "").strip().replace(" ", "")
+    if not cleaned:
+        raise ValueError("horizon cannot be empty")
+    if "-" in cleaned:
+        left, right = cleaned.split("-", 1)
+        minimum = int(left)
+        maximum = int(right)
+    else:
+        minimum = maximum = int(cleaned)
+    if minimum < 1 or maximum < 1 or maximum < minimum:
+        raise ValueError("horizon must be a positive year or range, for example 5-10")
+    return minimum, maximum
+
+
+def _parse_cli_rate(value: str | float | int, flag_name: str) -> float:
+    if isinstance(value, str):
+        text = value.strip()
+        is_percent = text.endswith("%")
+        if is_percent:
+            text = text[:-1]
+        try:
+            parsed = float(text)
+        except ValueError as exc:
+            raise ValueError(f"{flag_name} must be numeric or a percentage") from exc
+        rate = parsed / 100 if is_percent or parsed > 1 else parsed
+    else:
+        rate = float(value)
+        if rate > 1:
+            rate = rate / 100
+    if rate < 0 or rate > 1:
+        raise ValueError(f"{flag_name} must be between 0 and 100%")
+    return rate
+
+
+def _parse_external_exposure(value: str) -> dict[str, object]:
+    parts = [part.strip() for part in value.split(":")]
+    if len(parts) not in {3, 4}:
+        raise ValueError("external-exposure must be TICKER:AMOUNT:CURRENCY[:TYPE]")
+    ticker, amount, currency = parts[:3]
+    exposure_type = parts[3] if len(parts) == 4 else "external_stock"
+    return {
+        "ticker": normalize_ticker(ticker),
+        "amount": float(amount.replace(",", "")),
+        "currency": currency.upper(),
+        "type": exposure_type or "external_stock",
+        "includeInActivePortfolio": False,
+    }
+
+
+def _parse_other_portfolio(value: str) -> dict[str, object]:
+    parts = [part.strip() for part in value.split(":")]
+    if len(parts) != 3:
+        raise ValueError("other-portfolio must be NAME:AMOUNT:CURRENCY")
+    name, amount, currency = parts
+    return {
+        "name": name,
+        "amount": float(amount.replace(",", "")),
+        "currency": currency.upper(),
+        "includeInActivePortfolio": False,
+    }
 
 
 def _rsu_inputs_from_args(args: argparse.Namespace, research_root: str | None = None) -> RsuTaxInputs:

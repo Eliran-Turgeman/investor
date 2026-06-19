@@ -31,9 +31,11 @@ class PortfolioService:
             valuations_dir=self.context.valuations_dir,
         )
         artifacts = [ref for ref in self.catalog.portfolio_artifacts() if ref.exists]
+        profile_status = self.catalog.profile_status()
         return OperationResult(
             operation="portfolio.context",
             data={
+                "profileStatus": profile_status,
                 "tickers": inputs.tickers,
                 "holdings": inputs.holdings,
                 "watchlist": inputs.watchlist,
@@ -43,6 +45,7 @@ class PortfolioService:
             },
             sourcePaths=[ref.path for ref in artifacts],
             artifacts=artifacts,
+            nextActions=profile_status["nextActions"] if profile_status["onboardingRequired"] else [],
         )
 
     def init(self, workbook_path: str | Path | None = None) -> OperationResult:
@@ -158,4 +161,3 @@ def _portfolio_refresh_errors(result: dict[str, Any]) -> list[str]:
     ]
     errors.extend(result.get("valuation", {}).get("errors", []))
     return [str(error) for error in errors if error]
-

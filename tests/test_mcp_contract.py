@@ -138,18 +138,163 @@ class McpContractTests(unittest.TestCase):
         self.assertEqual(metrics_resource["mimeType"], "application/json")
         self.assertIn('"ticker": "ACME"', read_result["contents"][0]["text"])
 
+    def test_mcp_profile_status_requires_onboarding_when_profile_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            server = _server(tmp)
+
+            resources = server.handle({"jsonrpc": "2.0", "id": 1, "method": "resources/list"})["result"]["resources"]
+            status_resource = next(item for item in resources if item["uri"] == "investor://profile/status")
+            read_result = server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "resources/read",
+                    "params": {"uri": "investor://profile/status"},
+                }
+            )["result"]
+            status_from_resource = json.loads(read_result["contents"][0]["text"])
+            status_from_tool = _call_tool(server, "get_profile_status", {})
+            portfolio_context = _call_tool(server, "get_portfolio_context", {})
+
+        self.assertEqual(status_resource["mimeType"], "application/json")
+        self.assertTrue(status_from_resource["onboardingRequired"])
+        self.assertFalse(status_from_resource["profileExists"])
+        self.assertIn("investor://profile/policy", {item["uri"] for item in status_from_resource["missingProfileArtifacts"]})
+        self.assertTrue(status_from_tool["data"]["onboardingRequired"])
+        self.assertTrue(portfolio_context["data"]["profileStatus"]["onboardingRequired"])
+        self.assertIn("init_investor_profile", "\n".join(portfolio_context["nextActions"]))
+
+    def test_mcp_lists_and_reads_profile_resources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            portfolio_dir = Path(tmp) / "portfolio"
+            server = _server(tmp, portfolio_dir=portfolio_dir)
+            _call_tool(server, "init_investor_profile", {})
+
+            resources = server.handle({"jsonrpc": "2.0", "id": 1, "method": "resources/list"})["result"]["resources"]
+            policy_resource = next(item for item in resources if item["uri"] == "investor://profile/policy")
+            goals_resource = next(item for item in resources if item["uri"] == "investor://profile/goals")
+            read_result = server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "resources/read",
+                    "params": {"uri": goals_resource["uri"]},
+                }
+            )["result"]
+            status_result = server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "resources/read",
+                    "params": {"uri": "investor://profile/status"},
+                }
+            )["result"]
+            status = json.loads(status_result["contents"][0]["text"])
+
+        self.assertEqual(policy_resource["mimeType"], "text/markdown")
+        self.assertEqual(goals_resource["mimeType"], "application/json")
+        self.assertIn('"primaryObjective": "outperform_sp500"', read_result["contents"][0]["text"])
+        self.assertFalse(status["onboardingRequired"])
+        self.assertTrue(status["profileExists"])
+
+    def test_profile_onboarding_cli_and_mcp_write_equivalent_policy_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cli_dir = Path(tmp) / "cli" / "portfolio"
+            mcp_dir = Path(tmp) / "mcp" / "portfolio"
+            cli_stdout = io.StringIO()
+
+            with redirect_stdout(cli_stdout):
+                exit_code = cli_main(
+                    [
+                        "onboarding",
+                        "init",
+                        "--portfolio-dir",
+                        str(cli_dir),
+                        "--benchmark",
+                        "S&P 500",
+                        "--horizon",
+                        "5-10",
+                        "--ideas-per-month",
+                        "3",
+                        "--margin-of-safety",
+                        "30%",
+                        "--max-position-size",
+                        "30%",
+                        "--focus",
+                        "software",
+                        "--focus",
+                        "ai_related_hardware_or_hardware_adjacent_businesses",
+                        "--external-exposure",
+                        "MSFT:50000:USD:RSU",
+                        "--external-exposure",
+                        "PANW:75000:USD:RSU",
+                        "--other-portfolio",
+                        "other_personal_portfolio:250000:NIS",
+                    ]
+                )
+
+            mcp_payload = _call_tool(
+                _server(Path(tmp) / "mcp", portfolio_dir=mcp_dir),
+                "init_investor_profile",
+                {
+                    "benchmark": "S&P 500",
+                    "horizonMinYears": 5,
+                    "horizonMaxYears": 10,
+                    "ideasPerMonth": 3,
+                    "requiredMarginOfSafety": 0.30,
+                    "maxPositionSize": 0.30,
+                    "focusAreas": ["software", "ai_related_hardware_or_hardware_adjacent_businesses"],
+                    "externalExposures": [
+                        {"ticker": "MSFT", "amount": 50000, "currency": "USD", "type": "RSU"},
+                        {"ticker": "PANW", "amount": 75000, "currency": "USD", "type": "RSU"},
+                    ],
+                    "otherPortfolios": [
+                        {"name": "other_personal_portfolio", "amount": 250000, "currency": "NIS"},
+                    ],
+                },
+            )
+
+            cli_goals = json.loads((cli_dir / "goals.json").read_text(encoding="utf-8"))
+            mcp_goals = json.loads((mcp_dir / "goals.json").read_text(encoding="utf-8"))
+            cli_external = json.loads((cli_dir / "external_exposure.json").read_text(encoding="utf-8"))
+            mcp_external = json.loads((mcp_dir / "external_exposure.json").read_text(encoding="utf-8"))
+            cli_operating = json.loads((cli_dir / "operating_preferences.json").read_text(encoding="utf-8"))
+            mcp_operating = json.loads((mcp_dir / "operating_preferences.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(cli_goals, mcp_goals)
+        self.assertEqual(cli_external, mcp_external)
+        self.assertEqual(cli_operating, mcp_operating)
+        self.assertEqual(mcp_payload["data"]["writtenCount"], 15)
+
     def test_mcp_initialize_exposes_tools_resources_and_prompts(self):
         with tempfile.TemporaryDirectory() as tmp:
             server = _server(tmp)
             init = server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})["result"]
             tools = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]
             prompts = server.handle({"jsonrpc": "2.0", "id": 3, "method": "prompts/list"})["result"]["prompts"]
+            templates = server.handle({"jsonrpc": "2.0", "id": 4, "method": "resources/templates/list"})["result"][
+                "resourceTemplates"
+            ]
+            onboarding_prompt = server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "prompts/get",
+                    "params": {"name": "investor_onboarding"},
+                }
+            )["result"]
 
         self.assertIn("tools", init["capabilities"])
         self.assertIn("resources", init["capabilities"])
         self.assertIn("prompts", init["capabilities"])
         self.assertIn("run_valuation", {tool["name"] for tool in tools})
+        self.assertIn("get_profile_status", {tool["name"] for tool in tools})
+        self.assertIn("init_investor_profile", {tool["name"] for tool in tools})
+        self.assertIn("investor_onboarding", {prompt["name"] for prompt in prompts})
         self.assertIn("portfolio_review", {prompt["name"] for prompt in prompts})
+        self.assertIn("investor://profile/{artifact}", {template["uriTemplate"] for template in templates})
+        self.assertIn("get_profile_status", onboarding_prompt["messages"][0]["content"]["text"])
 
 
 def _server(

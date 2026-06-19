@@ -5,9 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..utils import normalize_ticker
+from ..utils import normalize_ticker, utc_now_iso
 from .context import AppContext
-from .schemas import ArtifactReference
+from .schemas import SCHEMA_VERSION, ArtifactReference
+
+
+PROFILE_STATUS_URI = "investor://profile/status"
 
 
 @dataclass(slots=True)
@@ -49,6 +52,128 @@ class ArtifactCatalog:
                 "portfolio",
             ),
         ]
+
+    def profile_artifacts(self) -> list[ArtifactReference]:
+        base = self.context.portfolio_dir
+        return [
+            self._ref(
+                "investor://profile/policy",
+                "investor_policy.md",
+                base / "investor_policy.md",
+                "profile",
+                mime_type="text/markdown",
+                description="Investor policy and assistant behavior guardrails.",
+            ),
+            self._ref(
+                "investor://profile/goals",
+                "goals.json",
+                base / "goals.json",
+                "profile",
+                description="Portfolio goals, benchmark, horizon, and optimization priorities.",
+            ),
+            self._ref(
+                "investor://profile/preferences",
+                "preferences.json",
+                base / "preferences.json",
+                "profile",
+                description="Investing style, circle of competence, and assistant challenge style.",
+            ),
+            self._ref(
+                "investor://profile/position-sizing",
+                "position_sizing.json",
+                base / "position_sizing.json",
+                "profile",
+                description="Position sizing policy and active portfolio concentration rules.",
+            ),
+            self._ref(
+                "investor://profile/valuation-policy",
+                "valuation_policy.json",
+                base / "valuation_policy.json",
+                "profile",
+                description="Margin of safety and valuation method policy.",
+            ),
+            self._ref(
+                "investor://profile/risk-policy",
+                "risk_policy.json",
+                base / "risk_policy.json",
+                "profile",
+                description="Risk preferences and higher-risk opportunity handling.",
+            ),
+            self._ref(
+                "investor://profile/decision-process",
+                "decision_process.json",
+                base / "decision_process.json",
+                "profile",
+                description="Candidate evaluation, monthly workflow, and rejection rules.",
+            ),
+            self._ref(
+                "investor://profile/operating-preferences",
+                "operating_preferences.json",
+                base / "operating_preferences.json",
+                "profile",
+                description="Research cadence, output depth, and workflow preferences.",
+            ),
+            self._ref(
+                "investor://profile/external-exposure",
+                "external_exposure.json",
+                base / "external_exposure.json",
+                "profile",
+                description="External RSUs and other portfolios tracked outside active portfolio construction.",
+            ),
+            self._ref(
+                "investor://profile/onboarding-notes",
+                "onboarding_notes.md",
+                base / "onboarding_notes.md",
+                "profile",
+                mime_type="text/markdown",
+                description="Onboarding design notes and inferred-default policy.",
+            ),
+            self._ref(
+                "investor://profile/thesis-template",
+                "thesis_template.md",
+                base / "thesis_template.md",
+                "profile",
+                mime_type="text/markdown",
+                description="Agent-owned thesis memo template.",
+            ),
+            self._ref(
+                "investor://profile/bear-case-template",
+                "bear_case_template.md",
+                base / "bear_case_template.md",
+                "profile",
+                mime_type="text/markdown",
+                description="Agent-owned bear-case memo template.",
+            ),
+        ]
+
+    def profile_status_resource(self) -> ArtifactReference:
+        return ArtifactReference(
+            uri=PROFILE_STATUS_URI,
+            name="profile_status.json",
+            path=str((self.context.portfolio_dir / "profile_status.virtual.json").resolve()),
+            kind="profile-status",
+            mimeType="application/json",
+            description="Virtual profile onboarding status. Exists even before onboarding files are written.",
+            exists=True,
+        )
+
+    def profile_status(self) -> dict[str, Any]:
+        artifacts = self.profile_artifacts()
+        existing = [ref for ref in artifacts if ref.exists]
+        missing = [ref for ref in artifacts if not ref.exists]
+        onboarding_required = bool(missing)
+        return {
+            "schemaVersion": SCHEMA_VERSION,
+            "generatedAt": utc_now_iso(),
+            "profileExists": not onboarding_required,
+            "onboardingRequired": onboarding_required,
+            "portfolioDir": str(self.context.portfolio_dir),
+            "statusResource": PROFILE_STATUS_URI,
+            "requiredProfileArtifacts": [ref.to_dict() for ref in artifacts],
+            "existingProfileArtifacts": [ref.to_dict() for ref in existing],
+            "missingProfileArtifacts": [ref.to_dict() for ref in missing],
+            "nextActions": _profile_status_next_actions(onboarding_required),
+        }
 
     def company_artifacts(self, ticker: str) -> list[ArtifactReference]:
         ticker = normalize_ticker(ticker)
@@ -104,7 +229,9 @@ class ArtifactCatalog:
         return refs
 
     def all_existing_resources(self) -> list[ArtifactReference]:
-        resources = [ref for ref in self.portfolio_artifacts() if ref.exists]
+        resources = [self.profile_status_resource()]
+        resources.extend(ref for ref in self.portfolio_artifacts() if ref.exists)
+        resources.extend(ref for ref in self.profile_artifacts() if ref.exists)
         if self.context.research_root.exists():
             for child in sorted(self.context.research_root.iterdir()):
                 if child.is_dir():
@@ -116,6 +243,9 @@ class ArtifactCatalog:
 
     def read(self, uri: str) -> ArtifactContent:
         ref = self.resolve(uri)
+        if ref.uri == PROFILE_STATUS_URI:
+            text = json.dumps(self.profile_status(), indent=2, sort_keys=True, allow_nan=False) + "\n"
+            return ArtifactContent(uri=ref.uri, mimeType=ref.mimeType, text=text, path=ref.path)
         path = Path(ref.path)
         if not ref.exists or not path.exists():
             raise FileNotFoundError(f"Artifact does not exist: {uri}")
@@ -133,6 +263,12 @@ class ArtifactCatalog:
                 return ref
         if uri.startswith("investor://portfolio/"):
             for ref in self.portfolio_artifacts():
+                if ref.uri == uri:
+                    return ref
+        if uri.startswith("investor://profile/"):
+            if uri == PROFILE_STATUS_URI:
+                return self.profile_status_resource()
+            for ref in self.profile_artifacts():
                 if ref.uri == uri:
                     return ref
         if uri.startswith("investor://company/"):
@@ -209,3 +345,15 @@ class ArtifactCatalog:
 def _uri_part(value: str) -> str:
     return "".join(char if char.isascii() and (char.isalnum() or char in "._-") else "-" for char in value)
 
+
+def _profile_status_next_actions(onboarding_required: bool) -> list[str]:
+    if onboarding_required:
+        return [
+            "Run init_investor_profile before personalized portfolio review or candidate generation.",
+            "Ask only broad onboarding questions; do not run a long questionnaire.",
+            "After onboarding, read investor://profile/policy and investor://profile/decision-process.",
+        ]
+    return [
+        "Read investor://profile/policy before personalized portfolio analysis.",
+        "Use investor://profile/decision-process and investor://profile/operating-preferences to keep research lightweight.",
+    ]

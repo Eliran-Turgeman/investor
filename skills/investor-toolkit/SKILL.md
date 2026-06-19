@@ -22,6 +22,7 @@ investor assumptions validate <PATH>
 investor value <TICKER> --assumptions <PATH>
 investor value compare <TICKER> --assumptions <PATH> --assumptions <PATH>
 investor reverse-dcf <TICKER> --assumptions <PATH>
+investor onboarding init
 investor portfolio init --output <PATH>
 investor portfolio import --workbook <PATH>
 investor portfolio value
@@ -115,6 +116,16 @@ Use this workflow when the user wants to build, update, review, or maintain a lo
 
 Default portfolio artifacts:
 
+- `portfolio/investor_policy.md` - user profile, investment policy, and assistant behavior guardrails.
+- `portfolio/goals.json` - objective, benchmark, horizon, and optimization priorities.
+- `portfolio/preferences.json` - style, circle of competence, avoid rules, and challenge preference.
+- `portfolio/position_sizing.json` - active portfolio sizing and concentration policy.
+- `portfolio/valuation_policy.json` - margin of safety and valuation method policy.
+- `portfolio/risk_policy.json` - risk preferences and higher-risk opportunity handling.
+- `portfolio/decision_process.json` - candidate evaluation and monthly workflow policy.
+- `portfolio/operating_preferences.json` - research cadence and output-depth preferences.
+- `portfolio/external_exposure.json` - RSUs and other portfolios tracked separately from active holdings.
+- `portfolio/onboarding_notes.md` - onboarding design notes and inferred-default policy.
 - `portfolio/portfolio.xlsx` - user-facing workbook.
 - `portfolio/holdings.json` - normalized holdings from workbook or agent edits.
 - `portfolio/watchlist.json` - normalized watchlist from workbook or agent edits.
@@ -126,6 +137,16 @@ Default portfolio artifacts:
 - `valuations/<TICKER>.<SCENARIO>.<MODEL>.result.json` - portfolio-generated valuation results.
 
 The workbook is useful for manual Excel review. For chat-first workflows, the agent may also update `holdings.json`, `watchlist.json`, and `assumption_overrides.json` directly from explicit user input. Do not invent positions, share counts, cost basis, or user fair values.
+
+Run lightweight onboarding when profile artifacts are missing:
+
+```powershell
+investor onboarding init
+```
+
+Onboarding should remain simple: use broad defaults, ask only a few high-level questions when needed, and label inferred preferences separately from explicit user answers.
+
+For MCP workflows, call `get_profile_status` before personalized portfolio review or candidate generation. If `onboardingRequired` is true, use the `investor_onboarding` prompt or call `init_investor_profile` after asking only broad questions. The virtual resource `investor://profile/status` is always available.
 
 ### Bootstrap Or Open Portfolio
 

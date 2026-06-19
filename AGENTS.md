@@ -17,6 +17,7 @@ investor assumptions validate <PATH>
 investor value <TICKER> --assumptions <PATH>
 investor value compare <TICKER> --assumptions <PATH> --assumptions <PATH>
 investor reverse-dcf <TICKER> --assumptions <PATH>
+investor onboarding init
 investor portfolio init --output <PATH>
 investor portfolio import --workbook <PATH>
 investor portfolio value
@@ -81,6 +82,7 @@ Separate source facts, assumptions, deterministic calculations, and judgment. Ne
 Use portfolio commands for deterministic workbook and signal workflows:
 
 ```powershell
+investor onboarding init
 investor portfolio init --output portfolio/portfolio.xlsx
 investor portfolio import --workbook portfolio/portfolio.xlsx
 investor portfolio value
@@ -91,6 +93,16 @@ The workbook is the user-facing editing surface for holdings, watchlist rows, as
 
 Read portfolio artifacts directly when explaining results:
 
+- `portfolio/investor_policy.md`
+- `portfolio/goals.json`
+- `portfolio/preferences.json`
+- `portfolio/position_sizing.json`
+- `portfolio/valuation_policy.json`
+- `portfolio/risk_policy.json`
+- `portfolio/decision_process.json`
+- `portfolio/operating_preferences.json`
+- `portfolio/external_exposure.json`
+- `portfolio/onboarding_notes.md`
 - `portfolio/holdings.json`
 - `portfolio/watchlist.json`
 - `portfolio/assumption_overrides.json`
@@ -98,6 +110,10 @@ Read portfolio artifacts directly when explaining results:
 - `portfolio/signals.json`
 - `portfolio/valuation_audit.json`
 - `portfolio/portfolio.xlsx`
+
+If profile artifacts are missing, use `investor onboarding init`. Keep onboarding simple: broad defaults first, a few high-level questions only when needed, and no investment recommendations.
+
+For MCP workflows, check `get_profile_status` before personalized portfolio review or candidate generation. If `onboardingRequired` is true, use `init_investor_profile` after asking only broad questions. `investor://profile/status` is always available.
 
 ## RSU Tax
 

@@ -151,6 +151,7 @@ class InvestorMcpServer:
         if not isinstance(arguments, dict):
             raise JsonRpcError(JSONRPC_INVALID_PARAMS, "Prompt arguments must be an object.")
         prompts = {
+            "investor_onboarding": _investor_onboarding_prompt,
             "portfolio_review": _portfolio_review_prompt,
             "company_deep_dive": _company_deep_dive_prompt,
             "thesis_challenge": _thesis_challenge_prompt,
@@ -176,12 +177,86 @@ class InvestorMcpServer:
                 description=(
                     "Use this when the user asks about their current holdings, watchlist, portfolio rules, "
                     "or existing valuation outputs. This is read-only and returns normalized local portfolio "
-                    "inputs plus known valuation rows and artifact references."
+                    "inputs plus known valuation rows, artifact references, and profileStatus. If "
+                    "profileStatus.onboardingRequired is true, run lightweight onboarding before personalized "
+                    "portfolio analysis or candidate generation."
                 ),
                 input_schema=_object_schema({}, required=[]),
                 output_schema=_operation_schema(),
                 read_only=True,
                 handler=lambda args: self.app.portfolio.context_snapshot().to_dict(),
+            ),
+            ToolSpec(
+                name="get_profile_status",
+                title="Get profile status",
+                description=(
+                    "Use this at the start of a personalized investor workflow. It reports whether profile "
+                    "artifacts exist, which ones are missing, and whether init_investor_profile should be run "
+                    "before portfolio review or stock candidate generation."
+                ),
+                input_schema=_object_schema({}, required=[]),
+                output_schema=_operation_schema(),
+                read_only=True,
+                handler=lambda args: self.app.profile.status().to_dict(),
+            ),
+            ToolSpec(
+                name="init_investor_profile",
+                title="Initialize investor profile",
+                description=(
+                    "Use this during lightweight onboarding to create local investor profile and policy artifacts. "
+                    "The tool writes broad defaults from simple inputs; it does not ask an expert questionnaire and "
+                    "does not make investment recommendations."
+                ),
+                input_schema=_object_schema(
+                    {
+                        "benchmark": {"type": "string", "default": "S&P 500"},
+                        "horizonMinYears": {"type": "integer", "default": 5, "minimum": 1},
+                        "horizonMaxYears": {"type": "integer", "default": 10, "minimum": 1},
+                        "ideasPerMonth": {"type": "integer", "default": 3, "minimum": 1},
+                        "requiredMarginOfSafety": {"type": "number", "default": 0.30, "minimum": 0, "maximum": 0.8},
+                        "maxPositionSize": {"type": "number", "default": 0.30, "minimum": 0, "maximum": 1},
+                        "focusAreas": {"type": "array", "items": {"type": "string"}, "default": []},
+                        "avoidAreas": {"type": "array", "items": {"type": "string"}, "default": []},
+                        "externalExposures": {
+                            "type": "array",
+                            "default": [],
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "ticker": {"type": "string"},
+                                    "type": {"type": "string"},
+                                    "amount": {"type": "number"},
+                                    "currency": {"type": "string"},
+                                    "notes": {"type": "string"},
+                                    "includeInActivePortfolio": {"type": "boolean"},
+                                },
+                                "required": ["ticker"],
+                                "additionalProperties": True,
+                            },
+                        },
+                        "otherPortfolios": {
+                            "type": "array",
+                            "default": [],
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "amount": {"type": "number"},
+                                    "currency": {"type": "string"},
+                                    "notes": {"type": "string"},
+                                },
+                                "required": ["name"],
+                                "additionalProperties": True,
+                            },
+                        },
+                        "externalExposureAffectsActivePortfolio": {"type": "boolean", "default": False},
+                        "overwrite": {"type": "boolean", "default": False},
+                    },
+                    required=[],
+                ),
+                output_schema=_operation_schema(),
+                read_only=False,
+                handler=self._init_profile,
             ),
             ToolSpec(
                 name="list_company_artifacts",
@@ -378,6 +453,25 @@ class InvestorMcpServer:
         ]
         return {spec.name: spec for spec in specs}
 
+    def _init_profile(self, args: dict[str, Any]) -> dict[str, Any]:
+        result = self.app.profile.init(
+            benchmark=str(args.get("benchmark") or "S&P 500"),
+            horizon_min_years=int(args.get("horizonMinYears") or 5),
+            horizon_max_years=int(args.get("horizonMaxYears") or 10),
+            ideas_per_month=int(args.get("ideasPerMonth") or 3),
+            required_margin_of_safety=float(args.get("requiredMarginOfSafety", 0.30)),
+            max_position_size=float(args.get("maxPositionSize", 0.30)),
+            focus_areas=list(args.get("focusAreas") or []),
+            avoid_areas=list(args.get("avoidAreas") or []),
+            external_exposures=list(args.get("externalExposures") or []),
+            other_portfolios=list(args.get("otherPortfolios") or []),
+            external_exposure_affects_active_portfolio=bool(
+                args.get("externalExposureAffectsActivePortfolio", False)
+            ),
+            overwrite=bool(args.get("overwrite", False)),
+        )
+        return result.to_dict()
+
     def _list_company_artifacts(self, args: dict[str, Any]) -> dict[str, Any]:
         ticker = normalize_ticker(str(args.get("ticker") or ""))
         refs = self.app.artifacts.company_artifacts(ticker)
@@ -482,6 +576,12 @@ def _resource_descriptor(ref: dict[str, Any]) -> dict[str, Any]:
 def _resource_templates() -> list[dict[str, Any]]:
     return [
         {
+            "uriTemplate": "investor://profile/{artifact}",
+            "name": "Investor profile artifact",
+            "description": "Investor profile artifact such as policy, goals, preferences, risk policy, or onboarding notes.",
+            "mimeType": "application/json",
+        },
+        {
             "uriTemplate": "investor://portfolio/{artifact}",
             "name": "Portfolio artifact",
             "description": "Portfolio artifact such as holdings, watchlist, signals, or valuation audit.",
@@ -498,6 +598,11 @@ def _resource_templates() -> list[dict[str, Any]]:
 
 def _prompt_descriptors() -> list[dict[str, Any]]:
     return [
+        {
+            "name": "investor_onboarding",
+            "title": "Investor Onboarding",
+            "description": "Check profile status and run the lightweight investor onboarding flow when needed.",
+        },
         {
             "name": "portfolio_review",
             "title": "Portfolio Review",
@@ -526,9 +631,22 @@ def _prompt_descriptors() -> list[dict[str, Any]]:
 
 def _portfolio_review_prompt(_args: dict[str, Any]) -> str:
     return (
-        "Use the investor MCP tools and resources. Get portfolio context, inspect signals and valuation audit "
-        "artifacts if present, and summarize data quality, valuation gaps, and the highest-priority review "
-        "items. Separate source facts, deterministic calculations, and judgment. Do not give direct buy/sell/hold instructions."
+        "Use the investor MCP tools and resources. First call get_profile_status. If onboardingRequired is true, "
+        "run lightweight onboarding before personalized analysis. Then get portfolio context, inspect signals and "
+        "valuation audit artifacts if present, and summarize data quality, valuation gaps, and the highest-priority "
+        "review items. Separate source facts, deterministic calculations, and judgment. Do not give direct buy/sell/hold instructions."
+    )
+
+
+def _investor_onboarding_prompt(_args: dict[str, Any]) -> str:
+    return (
+        "Use the investor MCP profile gate. First call get_profile_status. If onboardingRequired is false, read "
+        "investor://profile/policy and summarize that the profile is ready. If onboardingRequired is true, ask at "
+        "most five broad questions: portfolio objective and horizon, businesses the user understands, areas to avoid, "
+        "whether external RSUs or other portfolios should affect this active portfolio, and preferred monthly idea "
+        "flow. Do not ask an expert questionnaire. Then call init_investor_profile with the answers and reasonable "
+        "defaults, read investor://profile/status, and tell the user which profile artifacts were created. Do not "
+        "provide investment recommendations."
     )
 
 
@@ -553,8 +671,10 @@ def _thesis_challenge_prompt(args: dict[str, Any]) -> str:
 def _candidate_brief_prompt(args: dict[str, Any]) -> str:
     ticker = normalize_ticker(str(args.get("ticker") or ""))
     return (
-        f"Use the investor MCP tools and resources for {ticker}. Produce a value-investor candidate brief covering business "
-        "understandability, financial quality, valuation setup, portfolio fit, open questions, and next deterministic actions."
+        "First call get_profile_status. If onboardingRequired is true, run lightweight onboarding before a personalized "
+        f"candidate brief. Then use the investor MCP tools and resources for {ticker}. Produce a value-investor candidate "
+        "brief covering business understandability, financial quality, valuation setup, portfolio fit, open questions, "
+        "and next deterministic actions."
     )
 
 

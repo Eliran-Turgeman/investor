@@ -25,7 +25,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP
 Specific release:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP 'investor-install.ps1'; irm https://github.com/Eliran-Turgeman/investor/releases/download/v0.3.0/install.ps1 -OutFile $p; & $p -Version v0.3.0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP 'investor-install.ps1'; irm https://github.com/Eliran-Turgeman/investor/releases/download/v0.4.0/install.ps1 -OutFile $p; & $p -Version v0.4.0"
 ```
 
 ## Publishing
@@ -35,7 +35,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP
 3. Push a release tag:
 
 ```powershell
-.\scripts\publish-release.ps1 -Version 0.3.0
+.\scripts\publish-release.ps1 -Version 0.4.0
 ```
 
 The GitHub Actions release workflow runs tests, validates PowerShell syntax, builds `investor-toolkit.zip`, and publishes these release assets:
