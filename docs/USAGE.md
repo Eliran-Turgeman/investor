@@ -4,7 +4,7 @@ The `investor` CLI is the deterministic toolkit layer. It ingests and normalizes
 
 ## Install
 
-From the latest GitHub release. This installs both the CLI and the global Codex skill:
+From the latest GitHub release. This installs the CLI, the global Codex skill, and the local Codex MCP server registration:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/Eliran-Turgeman/investor/releases/latest/download/install.ps1 | iex"
@@ -14,6 +14,12 @@ CLI-only opt-out:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP 'investor-install.ps1'; irm https://github.com/Eliran-Turgeman/investor/releases/latest/download/install.ps1 -OutFile $p; & $p -SkipCodexSkill"
+```
+
+Codex skill without MCP registration:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP 'investor-install.ps1'; irm https://github.com/Eliran-Turgeman/investor/releases/latest/download/install.ps1 -OutFile $p; & $p -SkipCodexMcp"
 ```
 
 From a source checkout:
@@ -62,9 +68,41 @@ investor portfolio value
 investor portfolio signals
 investor portfolio refresh
 investor rsu-tax
+investor-mcp
 ```
 
 There are intentionally no CLI commands for `ask`, `memo`, `challenge`, or investment recommendations. Valuation and portfolio commands calculate from explicit inputs and rules; the agent/user owns the assumptions and interpretation.
+
+## MCP Server
+
+`investor-mcp` runs a local stdio MCP server for MCP-capable assistants and IDEs:
+
+```powershell
+investor-mcp --workspace-root .
+```
+
+Optional path settings:
+
+```powershell
+investor-mcp `
+  --workspace-root . `
+  --research-root .\research `
+  --portfolio-dir .\portfolio `
+  --assumptions-dir .\assumptions `
+  --valuations-dir .\valuations
+```
+
+The MCP server is a thin adapter over the same application services used by the CLI. It exposes:
+
+- tools for portfolio context, company artifact discovery, research refresh, assumptions initialization and validation, valuation, scenario comparison, portfolio valuation, and portfolio signals
+- resources for local portfolio and company research artifacts
+- prompts for portfolio review, company deep dive, thesis challenge, and candidate briefs
+
+Tool outputs use a stable operation envelope with `schemaVersion`, `operation`, `status`, `generatedAt`, `data`, `warnings`, `errors`, `sourcePaths`, `artifacts`, and `nextActions`.
+
+The MCP server does not provide investment recommendations or broker/trading actions. It exposes deterministic data and calculations for an assistant to interpret.
+
+`scripts/setup.ps1` registers this server in `%USERPROFILE%\.codex\config.toml` by default with `SEC_USER_AGENT = "InvestorResearchAssistant contact@example.com"` so online SEC refresh tools can run after Codex is restarted.
 
 ### `investor quickstart <ticker>`
 

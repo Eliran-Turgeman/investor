@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-    [switch]$SkipCodexSkill
+    [switch]$SkipCodexSkill,
+    [switch]$SkipCodexMcp,
+    [string]$SecUserAgent = "InvestorResearchAssistant contact@example.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,6 +12,70 @@ Set-Location $RepoRoot
 function Write-Step {
     param([string]$Message)
     Write-Host "[setup] $Message"
+}
+
+function ConvertTo-TomlLiteral {
+    param([string]$Value)
+    return "'" + ($Value -replace "'", "''") + "'"
+}
+
+function Remove-TomlSection {
+    param(
+        [string]$Content,
+        [string]$SectionName
+    )
+    $pattern = "(?ms)^\[$([regex]::Escape($SectionName))\]\r?\n.*?(?=^\[|\z)"
+    return [regex]::Replace($Content, $pattern, "")
+}
+
+function Install-CodexMcpServer {
+    param(
+        [string]$ConfigPath,
+        [string]$RepoRoot,
+        [string]$VenvPython,
+        [string]$SecUserAgent
+    )
+
+    $ConfigDir = Split-Path -Parent $ConfigPath
+    New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
+    $Existing = if (Test-Path $ConfigPath) {
+        Get-Content -Raw -Path $ConfigPath
+    } else {
+        ""
+    }
+
+    $Existing = Remove-TomlSection -Content $Existing -SectionName "mcp_servers.investor"
+    $Existing = Remove-TomlSection -Content $Existing -SectionName "mcp_servers.investor.env"
+    $Existing = $Existing.TrimEnd()
+
+    $ResearchRoot = Join-Path $RepoRoot "research"
+    $PortfolioDir = Join-Path $RepoRoot "portfolio"
+    $AssumptionsDir = Join-Path $RepoRoot "assumptions"
+    $ValuationsDir = Join-Path $RepoRoot "valuations"
+    $McpBlock = @(
+        "[mcp_servers.investor]",
+        "command = $(ConvertTo-TomlLiteral $VenvPython)",
+        "args = [",
+        "  ""-m"",",
+        "  ""investor_toolkit.mcp_server"",",
+        "  ""--workspace-root"",",
+        "  $(ConvertTo-TomlLiteral $RepoRoot),",
+        "  ""--research-root"",",
+        "  $(ConvertTo-TomlLiteral $ResearchRoot),",
+        "  ""--portfolio-dir"",",
+        "  $(ConvertTo-TomlLiteral $PortfolioDir),",
+        "  ""--assumptions-dir"",",
+        "  $(ConvertTo-TomlLiteral $AssumptionsDir),",
+        "  ""--valuations-dir"",",
+        "  $(ConvertTo-TomlLiteral $ValuationsDir)",
+        "]",
+        "",
+        "[mcp_servers.investor.env]",
+        "SEC_USER_AGENT = $(ConvertTo-TomlLiteral $SecUserAgent)"
+    ) -join "`n"
+
+    $Prefix = if ([string]::IsNullOrWhiteSpace($Existing)) { "" } else { "$Existing`n`n" }
+    Set-Content -Path $ConfigPath -Value "$Prefix$McpBlock`n" -Encoding utf8
 }
 
 Write-Step "Checking Python 3.11+"
@@ -58,9 +124,22 @@ if (-not $SkipCodexSkill) {
     Write-Step "Skipping Codex skill installation"
 }
 
+if ($SkipCodexSkill -or $SkipCodexMcp) {
+    Write-Step "Skipping Codex MCP server registration"
+} else {
+    $CodexConfig = Join-Path $env:USERPROFILE ".codex\config.toml"
+    Write-Step "Registering Codex MCP server in $CodexConfig"
+    Install-CodexMcpServer `
+        -ConfigPath $CodexConfig `
+        -RepoRoot $RepoRoot `
+        -VenvPython $VenvPython `
+        -SecUserAgent $SecUserAgent
+}
+
 Write-Host ""
 Write-Host "Next commands:"
 Write-Host "  .\.venv\Scripts\Activate.ps1"
 Write-Host '  $env:SEC_USER_AGENT = "InvestorResearchAssistant contact@example.com"'
 Write-Host "  .\scripts\doctor.ps1"
 Write-Host "  investor quickstart MSFT"
+Write-Host "  Restart Codex to load the investor MCP server."

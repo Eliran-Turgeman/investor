@@ -51,6 +51,16 @@ if ($PathCommand) {
     Write-Fail "investor console script was not found. Run .\scripts\setup.ps1."
 }
 
+$PathMcpCommand = Get-Command investor-mcp -ErrorAction SilentlyContinue
+$VenvMcp = Join-Path $RepoRoot ".venv\Scripts\investor-mcp.exe"
+if ($PathMcpCommand) {
+    Write-Ok "investor-mcp command is on PATH: $($PathMcpCommand.Source)"
+} elseif (Test-Path $VenvMcp) {
+    Write-Ok "investor-mcp console script is installed in .venv; activate with .\.venv\Scripts\Activate.ps1"
+} else {
+    Write-Fail "investor-mcp console script was not found. Run .\scripts\setup.ps1."
+}
+
 $SecUserAgent = [Environment]::GetEnvironmentVariable("SEC_USER_AGENT")
 if ([string]::IsNullOrWhiteSpace($SecUserAgent) -or $SecUserAgent.ToLower().Contains("set sec_user_agent")) {
     Write-Warn 'SEC_USER_AGENT is not set. Online SEC commands need: $env:SEC_USER_AGENT = "InvestorResearchAssistant contact@example.com"'
@@ -77,6 +87,23 @@ if (Test-Path $GlobalSkill) {
     Write-Ok "Global Codex skill is installed: $GlobalSkill"
 } else {
     Write-Warn "Global Codex skill is not installed. Run .\scripts\setup.ps1 to install it, or use -SkipCodexSkill for CLI-only setup."
+}
+
+$CodexConfig = Join-Path $env:USERPROFILE ".codex\config.toml"
+if (Test-Path $CodexConfig) {
+    $ConfigText = Get-Content -Raw -Path $CodexConfig
+    if ($ConfigText -match "(?m)^\[mcp_servers\.investor\]") {
+        Write-Ok "Codex investor MCP server is registered in $CodexConfig"
+    } else {
+        Write-Warn "Codex investor MCP server is not registered. Run .\scripts\setup.ps1 unless you intentionally skipped MCP registration."
+    }
+    if ($ConfigText -match "(?m)^\[mcp_servers\.investor\.env\]" -and $ConfigText -match "SEC_USER_AGENT") {
+        Write-Ok "Codex investor MCP SEC_USER_AGENT is configured."
+    } else {
+        Write-Warn "Codex investor MCP SEC_USER_AGENT is not configured; online SEC refresh tools may be blocked."
+    }
+} else {
+    Write-Warn "Codex config.toml was not found. Run .\scripts\setup.ps1 to register the MCP server."
 }
 
 $StooqKey = [Environment]::GetEnvironmentVariable("STOOQ_API_KEY")

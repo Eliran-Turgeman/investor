@@ -13,7 +13,7 @@ Requirements:
 - Internet access for live company research
 - A descriptive SEC user agent for SEC requests
 
-From the latest GitHub release, use one PowerShell command. This installs both the CLI and the global Codex skill:
+From the latest GitHub release, use one PowerShell command. This installs the CLI, the global Codex skill, and the local Codex MCP server registration:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/Eliran-Turgeman/investor/releases/latest/download/install.ps1 | iex"
@@ -23,6 +23,12 @@ CLI-only opt-out:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP 'investor-install.ps1'; irm https://github.com/Eliran-Turgeman/investor/releases/latest/download/install.ps1 -OutFile $p; & $p -SkipCodexSkill"
+```
+
+Skill-only MCP opt-out:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP 'investor-install.ps1'; irm https://github.com/Eliran-Turgeman/investor/releases/latest/download/install.ps1 -OutFile $p; & $p -SkipCodexMcp"
 ```
 
 Then in the installed folder:
@@ -48,6 +54,14 @@ Then ask Codex, Copilot, or another repo-aware agent:
 Use the investor-toolkit skill. Refresh local data for MSFT, then summarize the latest filing risks with citations.
 ```
 
+For MCP-capable assistants, run the local stdio MCP server from the installed folder:
+
+```powershell
+investor-mcp --workspace-root .
+```
+
+The MCP server exposes the same deterministic application services as the CLI: portfolio context, artifact resources, company research refresh, assumptions validation, valuation, scenario comparison, and portfolio signals.
+
 Source checkout CLI-only opt-out:
 
 ```powershell
@@ -59,7 +73,7 @@ Source checkout CLI-only opt-out:
 After committing changes, publish a release by pushing a version tag:
 
 ```powershell
-.\scripts\publish-release.ps1 -Version 0.2.0
+.\scripts\publish-release.ps1 -Version 0.3.0
 ```
 
 GitHub Actions will run tests and publish two release assets:
@@ -81,6 +95,7 @@ investor portfolio import --workbook portfolio/portfolio.xlsx
 investor portfolio value
 investor portfolio signals --workbook portfolio/portfolio.xlsx
 investor rsu-tax --ticker MSFT --grant-date 2022-05-30 --shares 100 --ordinary-tax-rate 47
+investor-mcp --workspace-root .
 ```
 
 `quickstart` is the easiest first run. It creates or refreshes the local ticker workspace, prints the key artifact paths, and gives copy-ready agent prompts.
@@ -134,6 +149,14 @@ The repo includes agent instructions in:
 - `.github/copilot-instructions.md`
 
 Prompt examples are in `examples/prompts.md`.
+
+The package also includes a no-dependency MCP stdio server and registers it with Codex by default during setup:
+
+```text
+investor-mcp
+```
+
+MCP tools are intentionally deterministic and artifact-oriented. They do not issue buy/sell/hold recommendations; the assistant still owns interpretation, thesis challenge, and narrative.
 
 ## Provider Limits
 

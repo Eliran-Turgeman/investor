@@ -7,16 +7,9 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Sequence
 
+from .app import AppContext, InvestorApplication
 from .logging_utils import close_logging
-from .portfolio import (
-    build_portfolio_signals,
-    export_portfolio_workbook,
-    import_portfolio_workbook,
-    init_portfolio,
-    refresh_portfolio,
-    render_portfolio_summary,
-    run_portfolio_valuations,
-)
+from .portfolio import render_portfolio_summary
 from .providers import ExchangeRateProvider, ProviderError, StooqMarketDataProvider
 from .rsu_tax import (
     SCENARIO_EARLY,
@@ -34,17 +27,10 @@ from .storage import ResearchStorage
 from .utils import normalize_ticker, parse_iso_date
 from .valuation import (
     SUPPORTED_MODELS,
-    compare_valuations,
-    export_agent_context,
-    init_assumptions_file,
-    load_assumptions,
     render_comparison,
-    render_validation_report,
     render_valuation_result,
-    run_valuation,
-    validate_assumptions_file,
 )
-from .workflow import ResearchWorkflow, WorkflowResult
+from .app.schemas import OperationResult
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -189,189 +175,125 @@ def main(argv: Sequence[str] | None = None) -> int:
     research_root = getattr(args, "research_root", None) or os.getenv("RESEARCH_HOME")
     try:
         if args.command == "quickstart":
-            if not args.offline:
-                _require_sec_user_agent()
-            workflow = ResearchWorkflow(Path.cwd(), research_root=research_root)
-            result = workflow.start(args.ticker, offline=args.offline, refresh=args.refresh)
-            _print_result(result)
+            app = _app(args, research_root=research_root)
+            result = app.research.quickstart(args.ticker, offline=args.offline, refresh=args.refresh)
+            _print_research_result(result)
             _print_quickstart_next_steps(result, offline=args.offline)
         elif args.command == "research":
-            workflow = ResearchWorkflow(Path.cwd(), research_root=research_root)
+            app = _app(args, research_root=research_root)
             if args.research_command == "start":
-                result = workflow.start(args.ticker, offline=args.offline, refresh=args.refresh)
-                _print_result(result)
+                result = app.research.start(args.ticker, offline=args.offline, refresh=args.refresh)
+                _print_research_result(result)
             elif args.research_command == "ingest":
-                result = workflow.ingest(args.ticker, offline=args.offline, refresh=args.refresh)
-                _print_result(result)
+                result = app.research.ingest(args.ticker, offline=args.offline, refresh=args.refresh)
+                _print_research_result(result)
             elif args.research_command == "metrics":
-                _print_result(workflow.metrics(args.ticker))
+                _print_research_result(app.research.metrics(args.ticker))
             else:
                 parser.error(f"Unknown research command: {args.research_command}")
         elif args.command == "assumptions":
+            app = _app(args, research_root=research_root)
             if args.assumptions_command == "init":
-                path = init_assumptions_file(
+                result = app.valuation.init_assumptions(
                     args.ticker,
                     model=args.model,
                     scenario=args.scenario,
                     output_path=args.output,
-                    cwd=Path.cwd(),
-                    research_root=research_root,
                 )
-                print(f"Wrote assumptions template: {path}")
+                print(f"Wrote assumptions template: {result.data['assumptionsPath']}")
             elif args.assumptions_command == "validate":
-                report = validate_assumptions_file(args.path, cwd=Path.cwd(), research_root=research_root)
-                print(render_validation_report(args.path, report))
-                if report.errors:
+                result = app.valuation.validate_assumptions(args.path)
+                print(_render_validation_result(args.path, result))
+                if result.errors:
                     return 2
             else:
                 parser.error(f"Unknown assumptions command: {args.assumptions_command}")
         elif args.command == "value":
+            app = _app(args, research_root=research_root)
             if args.target == "compare":
                 if not args.compare_ticker:
                     parser.error("value compare requires a ticker")
                 if not args.assumptions:
                     parser.error("value compare requires at least two --assumptions files")
-                comparison = compare_valuations(
+                result = app.valuation.compare(
                     args.compare_ticker,
                     args.assumptions,
-                    cwd=Path.cwd(),
-                    research_root=research_root,
                     include_sensitivity=args.include_sensitivity,
                 )
-                _write_or_print(render_comparison(comparison, args.format), args.output)
+                _write_or_print(render_comparison(result.data, args.format), args.output)
             else:
                 if args.compare_ticker:
                     raise ValueError("value accepts only one ticker unless using 'value compare <ticker>'")
                 if not args.assumptions or len(args.assumptions) != 1:
                     parser.error("value requires exactly one --assumptions file")
-                result = run_valuation(
+                result = app.valuation.run(
                     args.target,
                     args.assumptions[0],
-                    cwd=Path.cwd(),
-                    research_root=research_root,
                     include_sensitivity=args.include_sensitivity,
                     include_debug=args.include_debug,
+                    export_context=args.export_agent_context,
                 )
-                if args.export_agent_context:
-                    paths = export_agent_context(
-                        result,
-                        load_assumptions(args.assumptions[0], cwd=Path.cwd()),
-                        cwd=Path.cwd(),
-                    )
-                    result["agentContext"] = paths
-                _write_or_print(render_valuation_result(result, args.format), args.output)
+                _write_or_print(render_valuation_result(result.data, args.format), args.output)
         elif args.command == "reverse-dcf":
-            result = run_valuation(
+            app = _app(args, research_root=research_root)
+            result = app.valuation.run(
                 args.ticker,
                 args.assumptions,
-                cwd=Path.cwd(),
-                research_root=research_root,
                 include_sensitivity=False,
                 include_debug=args.include_debug,
+                export_context=args.export_agent_context,
             )
-            if result.get("model") != "reverse-dcf":
+            if result.data.get("model") != "reverse-dcf":
                 raise ValueError("reverse-dcf requires an assumptions file with model reverse-dcf")
-            if args.export_agent_context:
-                paths = export_agent_context(
-                    result,
-                    load_assumptions(args.assumptions, cwd=Path.cwd()),
-                    cwd=Path.cwd(),
-                )
-                result["agentContext"] = paths
-            _write_or_print(render_valuation_result(result, args.format), args.output)
+            _write_or_print(render_valuation_result(result.data, args.format), args.output)
         elif args.command == "portfolio":
+            app = _portfolio_app(args, research_root=research_root)
             if args.portfolio_command == "init":
-                result = init_portfolio(args.output, cwd=Path.cwd(), portfolio_dir=args.portfolio_dir)
-                print(render_portfolio_summary(result), end="")
+                result = app.portfolio.init(args.output)
+                print(render_portfolio_summary(result.data), end="")
             elif args.portfolio_command == "import":
-                result = import_portfolio_workbook(
-                    args.workbook,
-                    cwd=Path.cwd(),
-                    portfolio_dir=args.portfolio_dir,
-                )
-                print(render_portfolio_summary(result), end="")
+                result = app.portfolio.import_workbook(args.workbook)
+                print(render_portfolio_summary(result.data), end="")
             elif args.portfolio_command == "export":
-                result = export_portfolio_workbook(
-                    args.workbook,
-                    cwd=Path.cwd(),
-                    portfolio_dir=args.portfolio_dir,
-                    assumptions_dir=args.assumptions_dir,
-                    valuations_dir=args.valuations_dir,
-                    research_root=research_root,
-                )
-                print(render_portfolio_summary(result), end="")
+                result = app.portfolio.export_workbook(args.workbook)
+                print(render_portfolio_summary(result.data), end="")
             elif args.portfolio_command == "value":
-                result = run_portfolio_valuations(
-                    cwd=Path.cwd(),
-                    portfolio_dir=args.portfolio_dir,
-                    assumptions_dir=args.assumptions_dir,
-                    valuations_dir=args.valuations_dir,
-                    research_root=research_root,
-                    include_sensitivity=args.include_sensitivity,
-                )
-                print(render_portfolio_summary({"message": "portfolio valuations completed", **result}), end="")
-                if result.get("errors"):
+                result = app.portfolio.value(include_sensitivity=args.include_sensitivity)
+                print(render_portfolio_summary({"message": "portfolio valuations completed", **result.data}), end="")
+                if result.errors:
                     return 2
             elif args.portfolio_command == "signals":
-                result = build_portfolio_signals(
-                    cwd=Path.cwd(),
-                    portfolio_dir=args.portfolio_dir,
-                    valuations_dir=args.valuations_dir,
-                    research_root=research_root,
-                    write=True,
-                )
-                if args.workbook:
-                    export_portfolio_workbook(
-                        args.workbook,
-                        cwd=Path.cwd(),
-                        portfolio_dir=args.portfolio_dir,
-                        assumptions_dir=args.assumptions_dir,
-                        valuations_dir=args.valuations_dir,
-                        research_root=research_root,
-                    )
+                result = app.portfolio.signals(write=True, workbook_path=args.workbook)
                 print(
                     render_portfolio_summary(
                         {
                             "message": "portfolio signals completed",
-                            "signals": len(result.get("rows", [])),
-                            "blocked": sum(1 for row in result.get("rows", []) if row.get("dataQuality") == "blocked"),
+                            "signals": len(result.data.get("rows", [])),
+                            "blocked": sum(1 for row in result.data.get("rows", []) if row.get("dataQuality") == "blocked"),
                         }
                     ),
                     end="",
                 )
             elif args.portfolio_command == "refresh":
-                if not args.offline:
-                    _require_sec_user_agent()
-                result = refresh_portfolio(
-                    cwd=Path.cwd(),
-                    portfolio_dir=args.portfolio_dir,
+                result = app.portfolio.refresh(
                     workbook_path=args.workbook,
-                    research_root=research_root,
-                    assumptions_dir=args.assumptions_dir,
-                    valuations_dir=args.valuations_dir,
                     offline=args.offline,
                     refresh=args.refresh,
                     include_sensitivity=args.include_sensitivity,
                 )
-                errors = [
-                    row.get("error", "")
-                    for row in result.get("research", [])
-                    if isinstance(row, dict) and row.get("status") == "error" and row.get("error")
-                ]
-                errors.extend(result.get("valuation", {}).get("errors", []))
                 print(
                     render_portfolio_summary(
                         {
                             "message": "portfolio refresh completed",
-                            "research": len(result.get("research", [])),
-                            "valued": result.get("valuation", {}).get("valuedCount", 0),
-                            "signals": result.get("signals", {}).get("count", 0),
-                            "errors": errors,
+                            "research": len(result.data.get("research", [])),
+                            "valued": result.data.get("valuation", {}).get("valuedCount", 0),
+                            "signals": result.data.get("signals", {}).get("count", 0),
+                            "errors": result.errors,
                         }
                     ),
                     end="",
                 )
-                if errors:
+                if result.errors:
                     return 2
             else:
                 parser.error(f"Unknown portfolio command: {args.portfolio_command}")
@@ -388,26 +310,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         close_logging()
 
 
-def _print_result(result: WorkflowResult) -> None:
-    for message in result.messages:
+def _print_research_result(result: OperationResult) -> None:
+    for message in result.data.get("messages", []):
         print(message)
     for warning in result.warnings:
-        print(f"Warning: {warning}", file=sys.stderr)
+        print(f"Warning: {warning.message}", file=sys.stderr)
 
 
-def _require_sec_user_agent() -> None:
-    user_agent = os.getenv("SEC_USER_AGENT", "").strip()
-    if user_agent and "set sec_user_agent" not in user_agent.lower():
-        return
-    raise ValueError(
-        "SEC_USER_AGENT is required for online quickstart. "
-        'Set it first, for example: $env:SEC_USER_AGENT = "InvestorResearchAssistant contact@example.com"'
-    )
-
-
-def _print_quickstart_next_steps(result: WorkflowResult, offline: bool = False) -> None:
-    ticker = result.ticker
-    company_dir = result.company_dir
+def _print_quickstart_next_steps(result: OperationResult, offline: bool = False) -> None:
+    ticker = result.data["ticker"]
+    company_dir = Path(result.data["companyDir"])
     print()
     print("Quickstart artifact paths:")
     print(f"- Research folder: {company_dir}")
@@ -423,6 +335,51 @@ def _print_quickstart_next_steps(result: WorkflowResult, offline: bool = False) 
     print(f"- Use the investor-toolkit skill. Refresh local data for {ticker}, then summarize the latest filing risks with citations.")
     print(f"- Use the investor-toolkit skill. Build a business quality memo for {ticker} from local filings and metrics.")
     print(f"- Use the investor-toolkit skill. Draft a bear case for {ticker} and separate evidence from interpretation.")
+
+
+def _render_validation_result(path: str | Path, result: OperationResult) -> str:
+    if result.errors:
+        lines = [f"Invalid assumptions file: {path}", "", "Errors:"]
+        lines.extend(f"- {error}" for error in result.errors)
+    else:
+        lines = [f"Valid assumptions file: {path}"]
+    warnings = result.data.get("warnings", [])
+    if warnings:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning.get('message')}" for warning in warnings)
+    return "\n".join(lines)
+
+
+def _app(
+    args: argparse.Namespace,
+    research_root: str | Path | None = None,
+    portfolio_dir: str | Path | None = None,
+    assumptions_dir: str | Path | None = None,
+    valuations_dir: str | Path | None = None,
+) -> InvestorApplication:
+    context = AppContext.from_env(
+        cwd=Path.cwd(),
+        research_root=research_root,
+        portfolio_dir=portfolio_dir,
+        assumptions_dir=assumptions_dir,
+        valuations_dir=valuations_dir,
+    )
+    return InvestorApplication(context)
+
+
+def _portfolio_app(args: argparse.Namespace, research_root: str | Path | None = None) -> InvestorApplication:
+    portfolio_dir = getattr(args, "portfolio_dir", None)
+    if not portfolio_dir and getattr(args, "portfolio_command", "") in {"init", "import", "export"}:
+        workbook = getattr(args, "output", None) or getattr(args, "workbook", None)
+        if workbook:
+            portfolio_dir = Path(workbook).parent
+    return _app(
+        args,
+        research_root=research_root,
+        portfolio_dir=portfolio_dir,
+        assumptions_dir=getattr(args, "assumptions_dir", None),
+        valuations_dir=getattr(args, "valuations_dir", None),
+    )
 
 
 def _write_or_print(content: str, output_path: str | None) -> None:

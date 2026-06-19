@@ -4,7 +4,7 @@ GitHub Releases are the easiest way to give a friend a one-command installation 
 
 ## One-Line Install
 
-Latest release. This installs both the CLI and the global Codex skill:
+Latest release. This installs the CLI, the global Codex skill, and the local Codex MCP server registration:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/Eliran-Turgeman/investor/releases/latest/download/install.ps1 | iex"
@@ -16,10 +16,16 @@ CLI-only opt-out:
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP 'investor-install.ps1'; irm https://github.com/Eliran-Turgeman/investor/releases/latest/download/install.ps1 -OutFile $p; & $p -SkipCodexSkill"
 ```
 
+Skill-only MCP opt-out:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP 'investor-install.ps1'; irm https://github.com/Eliran-Turgeman/investor/releases/latest/download/install.ps1 -OutFile $p; & $p -SkipCodexMcp"
+```
+
 Specific release:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP 'investor-install.ps1'; irm https://github.com/Eliran-Turgeman/investor/releases/download/v0.2.0/install.ps1 -OutFile $p; & $p -Version v0.2.0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP 'investor-install.ps1'; irm https://github.com/Eliran-Turgeman/investor/releases/download/v0.3.0/install.ps1 -OutFile $p; & $p -Version v0.3.0"
 ```
 
 ## Publishing
@@ -29,7 +35,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Join-Path $env:TEMP
 3. Push a release tag:
 
 ```powershell
-.\scripts\publish-release.ps1 -Version 0.2.0
+.\scripts\publish-release.ps1 -Version 0.3.0
 ```
 
 The GitHub Actions release workflow runs tests, validates PowerShell syntax, builds `investor-toolkit.zip`, and publishes these release assets:
@@ -37,7 +43,7 @@ The GitHub Actions release workflow runs tests, validates PowerShell syntax, bui
 - `install.ps1`
 - `investor-toolkit.zip`
 
-The installer downloads `investor-toolkit.zip`, extracts it to `%USERPROFILE%\investor-toolkit` by default, runs `scripts/setup.ps1`, installs the Codex skill globally, and then runs `scripts/doctor.ps1`.
+The installer downloads `investor-toolkit.zip`, extracts it to `%USERPROFILE%\investor-toolkit` by default, runs `scripts/setup.ps1`, installs the Codex skill globally, registers the investor MCP server in `%USERPROFILE%\.codex\config.toml` with a default SEC user agent, and then runs `scripts/doctor.ps1`.
 
 ## Requirements
 

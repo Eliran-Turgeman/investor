@@ -4,6 +4,8 @@ param(
     [string]$Version = "latest",
     [string]$InstallDir = (Join-Path $env:USERPROFILE "investor-toolkit"),
     [switch]$SkipCodexSkill,
+    [switch]$SkipCodexMcp,
+    [string]$SecUserAgent = "InvestorResearchAssistant contact@example.com",
     [switch]$SkipDoctor
 )
 
@@ -51,10 +53,14 @@ try {
     }
 
     Write-Step "Running setup"
-    if ($SkipCodexSkill) {
-        & $SetupScript -SkipCodexSkill
+    if ($SkipCodexSkill -and $SkipCodexMcp) {
+        & $SetupScript -SkipCodexSkill -SkipCodexMcp -SecUserAgent $SecUserAgent
+    } elseif ($SkipCodexSkill) {
+        & $SetupScript -SkipCodexSkill -SecUserAgent $SecUserAgent
+    } elseif ($SkipCodexMcp) {
+        & $SetupScript -SkipCodexMcp -SecUserAgent $SecUserAgent
     } else {
-        & $SetupScript
+        & $SetupScript -SecUserAgent $SecUserAgent
     }
     if ($LASTEXITCODE -ne 0) {
         throw "setup.ps1 failed."
@@ -81,7 +87,8 @@ try {
     Write-Host '  $env:SEC_USER_AGENT = "InvestorResearchAssistant contact@example.com"'
     Write-Host "  investor quickstart MSFT"
     Write-Host ""
-    Write-Host "The investor-toolkit Codex skill was installed globally unless -SkipCodexSkill was supplied."
+    Write-Host "The investor-toolkit Codex skill and MCP server were installed globally unless skipped."
+    Write-Host "Restart Codex to load the investor MCP server."
 }
 finally {
     Remove-Item -LiteralPath $TempRoot -Recurse -Force -ErrorAction SilentlyContinue
