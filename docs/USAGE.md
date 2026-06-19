@@ -1,6 +1,6 @@
 # Investor Toolkit Usage Guide
 
-The `investor` CLI is the deterministic toolkit layer. It ingests and normalizes company research data, calculates local metrics, runs explicit-assumption intrinsic valuation models, and estimates Israeli Section 102 RSU taxes. It does not answer investment questions or generate investment analysis.
+The `investor` CLI is the deterministic toolkit layer. It ingests and normalizes company research data, calculates local metrics, runs explicit-assumption intrinsic valuation models, exports portfolio workbooks, builds rule-based portfolio diagnostics, and estimates Israeli Section 102 RSU taxes. It does not answer investment questions or generate investment analysis.
 
 ## Install
 
@@ -55,10 +55,16 @@ investor assumptions validate
 investor value
 investor value compare
 investor reverse-dcf
+investor portfolio init
+investor portfolio import
+investor portfolio export
+investor portfolio value
+investor portfolio signals
+investor portfolio refresh
 investor rsu-tax
 ```
 
-There are intentionally no CLI commands for `ask`, `memo`, `challenge`, or investment recommendations. Valuation commands calculate from explicit assumptions; the agent/user owns the assumptions and interpretation.
+There are intentionally no CLI commands for `ask`, `memo`, `challenge`, or investment recommendations. Valuation and portfolio commands calculate from explicit inputs and rules; the agent/user owns the assumptions and interpretation.
 
 ### `investor quickstart <ticker>`
 
@@ -202,6 +208,91 @@ investor value compare MSFT `
 
 Alias for running a `reverse-dcf` assumptions file. Reverse DCF solves one unknown at a time: `revenueGrowthYears1To5`, `targetOperatingMargin`, `terminalGrowthRate`, or `discountRate`.
 
+### `investor portfolio init`
+
+Creates a local portfolio workbook and JSON templates.
+
+```powershell
+investor portfolio init --output portfolio/portfolio.xlsx
+```
+
+Expected outputs:
+
+```text
+portfolio/portfolio.xlsx
+portfolio/holdings.json
+portfolio/watchlist.json
+portfolio/assumption_overrides.json
+portfolio/rules.json
+```
+
+The workbook contains editable `Holdings`, `Watchlist`, and `Assumptions` sheets plus generated `Valuations`, `Signals`, `Portfolio`, `Data Quality`, and `Audit` sheets.
+
+### `investor portfolio import`
+
+Imports user-edited workbook inputs into normalized JSON.
+
+```powershell
+investor portfolio import --workbook portfolio/portfolio.xlsx
+```
+
+Use this after editing holdings, watchlist rows, user fair values, or assumption paths in Excel. The import normalizes tickers, parses percentages like `25%` as `0.25`, rejects out-of-range allocation and margin rates, and treats `Result Path` as generated output rather than user input.
+
+### `investor portfolio value`
+
+Runs deterministic valuations for portfolio tickers using existing assumptions files.
+
+```powershell
+investor portfolio value `
+  --portfolio-dir portfolio `
+  --assumptions-dir assumptions `
+  --valuations-dir valuations
+```
+
+The command discovers `assumptions/<TICKER>.<SCENARIO>.json` plus any workbook-imported assumption paths, runs `investor value` logic in-process, and writes model-qualified files such as `valuations/<TICKER>.<SCENARIO>.<MODEL>.result.json`. It does not choose assumptions.
+
+### `investor portfolio signals`
+
+Builds deterministic signal JSON from holdings/watchlist inputs, valuation result files, user fair values, local prices, metrics, and `portfolio/rules.json`.
+
+```powershell
+investor portfolio signals `
+  --assumptions-dir assumptions `
+  --valuations-dir valuations `
+  --workbook portfolio/portfolio.xlsx
+```
+
+Expected output:
+
+```text
+portfolio/signals.json
+portfolio/portfolio.xlsx
+```
+
+Signals use labels such as `Strong opportunity`, `Opportunity`, `Watch`, `Fairly valued`, `Review`, `Review: above range`, and `No decision`. They are rule-based diagnostics, not buy/sell/hold recommendations. Data-quality failures such as stale prices or missing fair value produce `No decision`. If a portfolio-generated valuation result is older than its source assumptions file, the signal includes a freshness warning.
+
+### `investor portfolio export`
+
+Regenerates the workbook from portfolio JSON, valuation outputs, and signals.
+
+```powershell
+investor portfolio export `
+  --assumptions-dir assumptions `
+  --valuations-dir valuations `
+  --workbook portfolio/portfolio.xlsx
+```
+
+### `investor portfolio refresh`
+
+Refreshes local research for portfolio tickers, runs available valuations, writes signals, and exports the workbook.
+
+```powershell
+investor portfolio refresh --workbook portfolio/portfolio.xlsx
+investor portfolio refresh --offline --workbook portfolio/portfolio.xlsx
+```
+
+Online refresh requires `SEC_USER_AGENT`. Offline refresh uses only local cached data and should be used when network access is unavailable.
+
 ### `investor rsu-tax`
 
 Estimates Israeli Section 102 trustee capital-gains-track RSU taxation from user-supplied inputs.
@@ -304,6 +395,14 @@ assumptions/
   MSFT.base.json
 valuations/
   MSFT.base.result.json
+portfolio/
+  portfolio.xlsx
+  holdings.json
+  watchlist.json
+  assumption_overrides.json
+  rules.json
+  signals.json
+  valuation_audit.json
 context/
   valuations/
     MSFT.base.md
@@ -313,6 +412,7 @@ Artifact ownership:
 
 - CLI-owned: `company.json`, `filings/`, `extracted/`, `data/`, `metrics/`, `index/`.
 - CLI-owned valuation outputs: assumptions templates, validation output, valuation result files, scenario comparisons, and exported agent context.
+- CLI-owned portfolio outputs: normalized imported JSON, signal JSON, valuation audit JSON, and regenerated workbook exports.
 - Agent/user-owned: `memo.md`, `questions.md`, thesis logs, final valuation interpretation, and any other recommendation or judgment files.
 
 The CLI will not create or overwrite agent/user-owned analysis files.
@@ -326,6 +426,7 @@ Example user prompt:
 ```text
 Use the investor-toolkit skill. Estimate fair market value for MSFT from the local research data.
 Use the investor-toolkit skill. Estimate Israeli Section 102 RSU tax for 336 MSFT shares granted on 2022-05-30.
+Use the investor-toolkit skill. Import my portfolio workbook, run available valuations, then summarize No decision signals with source paths.
 ```
 
 The agent should cite local files such as:
@@ -366,5 +467,6 @@ Product scope:
 
 - V1 includes US-listed public-company research data and Israeli Section 102 RSU tax estimates.
 - V1 includes deterministic valuation calculations from explicit assumptions, but does not choose those assumptions or provide buy/sell recommendations.
-- V1 does not provide question answering, memo writing, real-time data, broker integration, automated trading, tax advice, or portfolio management.
+- V1 includes deterministic portfolio workbook export/import and rule-based portfolio diagnostics, but does not provide broker integration, automated trading, tax advice, or buy/sell/hold recommendations.
+- V1 does not provide question answering, memo writing, or real-time data.
 - `investor rsu-tax` is a deterministic estimate, not a filing-grade Israeli tax engine.

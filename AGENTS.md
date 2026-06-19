@@ -17,6 +17,11 @@ investor assumptions validate <PATH>
 investor value <TICKER> --assumptions <PATH>
 investor value compare <TICKER> --assumptions <PATH> --assumptions <PATH>
 investor reverse-dcf <TICKER> --assumptions <PATH>
+investor portfolio init --output <PATH>
+investor portfolio import --workbook <PATH>
+investor portfolio value
+investor portfolio signals --workbook <PATH>
+investor portfolio refresh --offline --workbook <PATH>
 investor rsu-tax
 ```
 
@@ -70,6 +75,29 @@ investor value MSFT --assumptions assumptions/MSFT.base.json --include-sensitivi
 ```
 
 Separate source facts, assumptions, deterministic calculations, and judgment. Never invent valuation outputs or give direct buy/sell instructions.
+
+## Portfolio Workbook
+
+Use portfolio commands for deterministic workbook and signal workflows:
+
+```powershell
+investor portfolio init --output portfolio/portfolio.xlsx
+investor portfolio import --workbook portfolio/portfolio.xlsx
+investor portfolio value
+investor portfolio signals --workbook portfolio/portfolio.xlsx
+```
+
+The workbook is the user-facing editing surface for holdings, watchlist rows, assumption paths, and user fair values. Import after Excel edits before recalculating. Signals are rule-based diagnostics such as `Opportunity`, `Watch`, `Review`, or `No decision`; do not present them as direct buy/sell/hold instructions.
+
+Read portfolio artifacts directly when explaining results:
+
+- `portfolio/holdings.json`
+- `portfolio/watchlist.json`
+- `portfolio/assumption_overrides.json`
+- `portfolio/rules.json`
+- `portfolio/signals.json`
+- `portfolio/valuation_audit.json`
+- `portfolio/portfolio.xlsx`
 
 ## RSU Tax
 

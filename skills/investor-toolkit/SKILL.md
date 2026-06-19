@@ -1,11 +1,11 @@
 ---
 name: investor-toolkit
-description: "Use when Codex or another coding agent needs to work with this repository's local investor toolkit: ingest and normalize US-listed company research data, read local filings/metrics, run deterministic intrinsic valuation from explicit assumptions JSON, compare valuation scenarios, run reverse DCF, or estimate Israeli Section 102 RSU tax. The skill tells the agent to use the deterministic `investor` CLI for data preparation, metrics, valuation outputs, RSU tax estimates, and artifact discovery, then answer by reading and citing local files or command inputs."
+description: "Use when Codex or another coding agent needs to work with this repository's local investor toolkit: ingest and normalize US-listed company research data, read local filings/metrics, run deterministic intrinsic valuation from explicit assumptions JSON, compare valuation scenarios, reverse DCF market expectations, build or update a portfolio workbook/watchlist from chat, run portfolio valuation and signal diagnostics, or estimate Israeli Section 102 RSU tax. The skill tells the agent to use the deterministic `investor` CLI for data preparation, metrics, valuation outputs, portfolio artifacts/signals, RSU tax estimates, and artifact discovery, then answer by reading and citing local files or command inputs."
 ---
 
 # Investor Toolkit
 
-The CLI is the deterministic toolkit layer. The agent performs analysis by reading local artifacts and command output.
+The CLI is the deterministic toolkit layer. The agent owns interpretation, assumptions, memo writing, and user-facing narrative.
 
 ## Core Boundary
 
@@ -22,49 +22,55 @@ investor assumptions validate <PATH>
 investor value <TICKER> --assumptions <PATH>
 investor value compare <TICKER> --assumptions <PATH> --assumptions <PATH>
 investor reverse-dcf <TICKER> --assumptions <PATH>
+investor portfolio init --output <PATH>
+investor portfolio import --workbook <PATH>
+investor portfolio value
+investor portfolio signals --workbook <PATH>
+investor portfolio export --workbook <PATH>
+investor portfolio refresh --offline --workbook <PATH>
 investor rsu-tax
 ```
 
-Do not expect or call CLI commands for question answering, memo writing, thesis challenge, assumption selection, or investment recommendations. Valuation commands only calculate deterministic outputs from explicit assumptions JSON; the agent owns judgment and interpretation.
+Do not expect or call CLI commands for question answering, memo writing, thesis challenge, assumption selection, broker integration, automated trading, or buy/sell recommendations. Valuation and portfolio commands calculate from explicit local data, assumptions, and rules; the agent/user owns judgment.
 
 If `investor` is not installed, run from the repo root:
 
 ```powershell
-python -m investor_toolkit research <command> <TICKER>
-python -m investor_toolkit assumptions <command> <args>
-python -m investor_toolkit value <TICKER> --assumptions <PATH>
-python -m investor_toolkit rsu-tax <args>
+python -m investor_toolkit <command> <args>
 ```
 
 ## Company Research Workflow
 
-1. Normalize the ticker to uppercase.
-2. For first-time local setup, `investor quickstart <TICKER>` is acceptable. For every live research session on an existing ticker, refresh local source data before answering unless the user explicitly asks for offline/local-only work:
+1. Normalize tickers to uppercase.
+2. For first-time local setup, prefer:
 
 ```powershell
-investor research ingest <TICKER> --refresh
+investor quickstart MSFT
 ```
 
-This existing command is responsible for fetching SEC filing metadata for every SEC filing filed in the last 2 years, downloading or reusing the raw filing documents, extracting or converting filing text, rebuilding the filing index, refreshing SEC company facts, refreshing market data, and recalculating metrics.
-
-3. If network access is unavailable or the user explicitly asks for offline/local-only work, then check for `research/<TICKER>/company.json`. If source data is missing, run:
+3. For live research on an existing ticker, refresh local source data before answering unless the user asks for offline/local-only work:
 
 ```powershell
-investor research start <TICKER> --offline
+investor research ingest MSFT --refresh
 ```
 
-4. If metrics are missing or stale after offline work, run:
+4. If network access is unavailable or the user asks for offline/local-only work, check for `research/<TICKER>/company.json`. If source data is missing, run:
 
 ```powershell
-investor research metrics <TICKER>
+investor research start MSFT --offline
 ```
 
-5. Read local artifacts directly. Start with:
+5. If metrics are missing or stale after offline work, run:
+
+```powershell
+investor research metrics MSFT
+```
+
+Read local artifacts directly:
 
 - `research/<TICKER>/company.json`
 - `research/<TICKER>/filings/metadata/filings.json`
 - `research/<TICKER>/filings/metadata/submissions.json`
-- `research/<TICKER>/filings/raw/**`
 - `research/<TICKER>/metrics/metrics.md`
 - `research/<TICKER>/metrics/metrics.json`
 - `research/<TICKER>/data/financials.json`
@@ -73,58 +79,164 @@ investor research metrics <TICKER>
 - `research/<TICKER>/extracted/**/risk-factors.md`
 - `research/<TICKER>/extracted/**/mdna.md`
 - `research/<TICKER>/extracted/**/notes.md`
-- `research/<TICKER>/extracted/**/document.md`
 - `research/<TICKER>/index/filing_chunks.jsonl`
 
-Use `rg` over `research/<TICKER>/extracted` for targeted evidence. Use `metrics.json` for numbers that need calculation or comparison.
+Use `rg` over `research/<TICKER>/extracted` for filing evidence. Use `metrics.json` for calculated numbers.
 
 ## Valuation Workflow
 
-When a user asks for valuation:
+When valuation is needed:
 
-1. Normalize the ticker to uppercase.
-2. Ensure local data and metrics exist using the company research workflow.
-3. Write assumptions to a JSON file before valuation:
-
-```powershell
-investor assumptions init <TICKER> --model fcff-dcf --scenario base --output assumptions/<TICKER>.base.json
-```
-
-4. Fill every `null` judgment field from local history and explicit agent/user assumptions.
-5. Validate before running:
+1. Ensure local research and metrics exist.
+2. Write assumptions to JSON before valuation.
+3. Fill judgment fields from local history, explicit user assumptions, and clearly stated agent judgment.
+4. Validate the assumptions.
+5. Run valuation and cite deterministic result JSON.
 
 ```powershell
-investor assumptions validate assumptions/<TICKER>.base.json
-```
-
-6. Run valuation and cite deterministic output:
-
-```powershell
-investor value <TICKER> --assumptions assumptions/<TICKER>.base.json --include-sensitivity --format json --output valuations/<TICKER>.base.result.json
+investor assumptions init MSFT --model fcff-dcf --scenario base --output assumptions/MSFT.base.json
+investor assumptions validate assumptions/MSFT.base.json
+investor value MSFT --assumptions assumptions/MSFT.base.json --include-sensitivity --format json --output valuations/MSFT.base.result.json
 ```
 
 Rules:
 
 - Never invent valuation outputs; use CLI result JSON as source of truth.
 - Separate source facts, assumptions, deterministic calculations, and judgment.
-- Prefer conservative/base/aggressive scenario ranges for serious valuation requests.
-- Explain which assumptions drive the result and flag high sensitivity.
-- Use `reverse-dcf` to analyze what the current market price implies.
-- Never provide direct buy/sell instructions.
+- Prefer conservative/base/aggressive scenario ranges for serious valuation work.
+- Use `reverse-dcf` when the user asks whether valuation looks demanding or expensive.
+- Never provide direct buy/sell/hold instructions.
+
+## Portfolio Workflow
+
+Use this workflow when the user wants to build, update, review, or maintain a long-term stock portfolio/watchlist by chatting with the agent.
+
+### Artifact Model
+
+Default portfolio artifacts:
+
+- `portfolio/portfolio.xlsx` - user-facing workbook.
+- `portfolio/holdings.json` - normalized holdings from workbook or agent edits.
+- `portfolio/watchlist.json` - normalized watchlist from workbook or agent edits.
+- `portfolio/assumption_overrides.json` - workbook-imported assumption paths, user fair values, and required margins.
+- `portfolio/rules.json` - deterministic signal thresholds.
+- `portfolio/signals.json` - rule-based signal output.
+- `portfolio/valuation_audit.json` - valuation run audit.
+- `assumptions/<TICKER>.<SCENARIO>.json` - explicit valuation assumptions.
+- `valuations/<TICKER>.<SCENARIO>.<MODEL>.result.json` - portfolio-generated valuation results.
+
+The workbook is useful for manual Excel review. For chat-first workflows, the agent may also update `holdings.json`, `watchlist.json`, and `assumption_overrides.json` directly from explicit user input. Do not invent positions, share counts, cost basis, or user fair values.
+
+### Bootstrap Or Open Portfolio
+
+If no portfolio exists, initialize it:
+
+```powershell
+investor portfolio init --output portfolio/portfolio.xlsx
+```
+
+If the user edited Excel, import it before recalculating:
+
+```powershell
+investor portfolio import --workbook portfolio/portfolio.xlsx
+```
+
+If the user gives holdings/watchlist changes in chat, update the JSON artifacts directly using the existing schema, then export the workbook:
+
+```powershell
+investor portfolio export --assumptions-dir assumptions --valuations-dir valuations --workbook portfolio/portfolio.xlsx
+```
+
+### Add Or Update A Ticker
+
+For each ticker the user adds or asks to review:
+
+1. Refresh or create local research:
+
+```powershell
+investor research ingest MSFT --refresh
+```
+
+Use `--offline` only when requested or when network is unavailable.
+
+2. Ensure assumptions exist for the required scenarios. For a serious portfolio decision, prefer conservative/base/aggressive:
+
+```powershell
+investor assumptions init MSFT --model fcff-dcf --scenario conservative --output assumptions/MSFT.conservative.json
+investor assumptions init MSFT --model fcff-dcf --scenario base --output assumptions/MSFT.base.json
+investor assumptions init MSFT --model fcff-dcf --scenario aggressive --output assumptions/MSFT.aggressive.json
+```
+
+3. Fill all `null` assumptions before valuation. Anchor assumptions in local metrics and filings, and place concise rationale in `metadata.notes`.
+4. Validate every assumptions file:
+
+```powershell
+investor assumptions validate assumptions/MSFT.base.json
+```
+
+5. Run single-ticker valuation if needed, or let the portfolio valuation command run all existing portfolio assumptions.
+
+### Recalculate Portfolio
+
+Run portfolio valuations from existing assumptions:
+
+```powershell
+investor portfolio value --portfolio-dir portfolio --assumptions-dir assumptions --valuations-dir valuations --include-sensitivity
+```
+
+Then build signals and update the workbook:
+
+```powershell
+investor portfolio signals --portfolio-dir portfolio --assumptions-dir assumptions --valuations-dir valuations --workbook portfolio/portfolio.xlsx
+```
+
+For a full local refresh:
+
+```powershell
+investor portfolio refresh --portfolio-dir portfolio --assumptions-dir assumptions --valuations-dir valuations --workbook portfolio/portfolio.xlsx
+```
+
+Online refresh requires `SEC_USER_AGENT`. Use `--offline` when the user asks for local-only work.
+
+### Interpret Portfolio Signals
+
+Read `portfolio/signals.json`, `portfolio/valuation_audit.json`, and relevant valuation result files. Treat signal labels as diagnostics:
+
+- `Strong opportunity`, `Opportunity`, `Watch`, `Fairly valued`, `Review`, `Review: above range`, `No decision`.
+- `No decision` means data or assumptions are insufficient, stale, invalid, or missing.
+- Do not translate signals into direct buy/sell/hold instructions.
+
+When summarizing, include:
+
+- Current price/date and data quality status.
+- Fair value source: user fair value, base valuation, conservative/aggressive scenario, or missing.
+- Margin of safety versus required margin.
+- Main warnings, including stale prices, invalid assumptions, valuation result older than assumptions, or missing source data.
+- Source paths for material claims.
+
+### Resolve `No decision`
+
+Use the reason in `portfolio/signals.json`:
+
+- Missing research: run `investor quickstart <TICKER>` or `investor research ingest <TICKER> --refresh`.
+- Missing price or stale price: refresh research/market data, or say the provider data is unavailable/stale.
+- Missing fair value: create/fill/validate assumptions or ask the user for a user fair value.
+- Invalid assumptions: read `portfolio/valuation_audit.json`, fix the assumptions JSON, validate, rerun `portfolio value`, then rerun `portfolio signals`.
+- Valuation result older than assumptions: rerun `investor portfolio value`.
 
 ## RSU Tax Workflow
 
-For Israeli Section 102 RSU tax estimate requests, use the toolkit command:
+For Israeli Section 102 RSU estimates, use:
 
 ```powershell
-investor rsu-tax --ticker <TICKER> --grant-date <YYYY-MM-DD> --shares <N> --ordinary-tax-rate <RATE>
+investor rsu-tax --ticker MSFT --grant-date 2022-05-30 --shares 100 --ordinary-tax-rate 47
 ```
 
-For a human-led terminal session, `investor rsu-tax` with no flags prompts for ticker, grant date, share count, and marginal tax rate. In agent/scripted use, pass those flags explicitly. The calculator fetches market prices and USD/ILS FX when possible; use `--grant-price-usd`, `--sale-price-usd`, or `--fx-usd-ils` when the user wants an override or a provider is unavailable. It infers the Section 102 2-year scenario from the grant date unless `--qualified-102` or `--early-sale` is supplied. Treat output as an estimate, not tax advice, and cite command inputs/output in the answer.
+Treat the output as an estimate, not tax advice. Cite command inputs and manual overrides.
 
 ## SEC User Agent
 
-Live SEC commands require a descriptive user agent. If missing, ask for or suggest a non-personal contact string:
+Online SEC requests require a descriptive user agent:
 
 ```powershell
 $env:SEC_USER_AGENT = "InvestorResearchAssistant contact@example.com"
@@ -134,35 +246,24 @@ Do not require the user's personal email.
 
 ## Answering Standards
 
-For user-facing analysis, separate the agent's reasoning from source facts:
-
-```markdown
-## Answer
-
-## Evidence
-
-## Interpretation
-
-## Open Questions
-```
-
-Rules:
-
-- Treat SEC filings and deterministic metrics as primary evidence.
-- Cite local filing section paths, metrics files, or data files for material claims.
+- Treat SEC filings, local metrics, assumptions JSON, valuation result JSON, portfolio signal JSON, and command inputs/output as primary evidence.
+- Cite local filing sections, metrics files, data files, assumptions files, valuation files, portfolio files, or command inputs/output for material claims.
 - Never invent missing financial numbers.
-- Say when local data is missing, stale, ambiguous, restated, or provider-dependent.
-- Avoid direct buy/sell instructions and short-term price predictions.
+- Say when data is missing, stale, ambiguous, restated, provider-dependent, or only user-supplied.
+- Avoid direct buy/sell/hold instructions and short-term price predictions.
 - For fair-value work, write assumptions JSON first, validate it, then cite deterministic CLI valuation output.
-- For RSU tax work, cite the command inputs and label the output as an estimate.
+- For portfolio work, import workbook edits if applicable, run deterministic valuation/signals, then cite `portfolio/signals.json` and source valuation files.
+- For RSU tax work, cite command inputs and label the output as an estimate.
 
 ## Agent-Owned Outputs
 
-If the user asks for a memo, thesis log, valuation, or research questions, create or update those as agent-owned files such as:
+If the user asks for analysis artifacts, write them as agent-owned files such as:
 
 - `research/<TICKER>/memo.md`
 - `research/<TICKER>/questions.md`
 - `research/<TICKER>/thesis-log.md`
 - `research/<TICKER>/valuation.md`
+- `portfolio/review.md`
+- `portfolio/questions.md`
 
 Do not describe those as CLI-generated artifacts.

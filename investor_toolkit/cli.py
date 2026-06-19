@@ -8,6 +8,15 @@ from pathlib import Path
 from typing import Sequence
 
 from .logging_utils import close_logging
+from .portfolio import (
+    build_portfolio_signals,
+    export_portfolio_workbook,
+    import_portfolio_workbook,
+    init_portfolio,
+    refresh_portfolio,
+    render_portfolio_summary,
+    run_portfolio_valuations,
+)
 from .providers import ExchangeRateProvider, ProviderError, StooqMarketDataProvider
 from .rsu_tax import (
     SCENARIO_EARLY,
@@ -114,6 +123,48 @@ def build_parser() -> argparse.ArgumentParser:
     reverse_dcf.add_argument("--include-debug", action="store_true")
     reverse_dcf.add_argument("--export-agent-context", action="store_true")
     reverse_dcf.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    portfolio = subparsers.add_parser("portfolio", help="Portfolio workbook and deterministic signal commands.")
+    portfolio_subparsers = portfolio.add_subparsers(dest="portfolio_command", required=True)
+
+    portfolio_init = portfolio_subparsers.add_parser("init", help="Create a portfolio workbook and JSON templates.")
+    portfolio_init.add_argument("--output", default="portfolio/portfolio.xlsx", help="Workbook path to create.")
+    portfolio_init.add_argument("--portfolio-dir", help="Directory for portfolio JSON artifacts.")
+
+    portfolio_import = portfolio_subparsers.add_parser("import", help="Import user-edited workbook inputs into JSON.")
+    portfolio_import.add_argument("--workbook", default="portfolio/portfolio.xlsx")
+    portfolio_import.add_argument("--portfolio-dir", help="Directory for portfolio JSON artifacts.")
+
+    portfolio_export = portfolio_subparsers.add_parser("export", help="Export portfolio JSON, valuations, and signals to XLSX.")
+    portfolio_export.add_argument("--workbook", default="portfolio/portfolio.xlsx")
+    portfolio_export.add_argument("--portfolio-dir", help="Directory for portfolio JSON artifacts.")
+    portfolio_export.add_argument("--assumptions-dir", default="assumptions")
+    portfolio_export.add_argument("--valuations-dir", default="valuations")
+    portfolio_export.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    portfolio_value = portfolio_subparsers.add_parser("value", help="Run valuations for portfolio tickers with existing assumptions.")
+    portfolio_value.add_argument("--portfolio-dir", default="portfolio")
+    portfolio_value.add_argument("--assumptions-dir", default="assumptions")
+    portfolio_value.add_argument("--valuations-dir", default="valuations")
+    portfolio_value.add_argument("--include-sensitivity", action="store_true")
+    portfolio_value.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    portfolio_signals = portfolio_subparsers.add_parser("signals", help="Build deterministic portfolio signal JSON.")
+    portfolio_signals.add_argument("--portfolio-dir", default="portfolio")
+    portfolio_signals.add_argument("--assumptions-dir", default="assumptions")
+    portfolio_signals.add_argument("--valuations-dir", default="valuations")
+    portfolio_signals.add_argument("--workbook", help="Also export the workbook after writing signals.")
+    portfolio_signals.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    portfolio_refresh = portfolio_subparsers.add_parser("refresh", help="Refresh local research, valuations, signals, and workbook.")
+    portfolio_refresh.add_argument("--portfolio-dir", default="portfolio")
+    portfolio_refresh.add_argument("--workbook", default="portfolio/portfolio.xlsx")
+    portfolio_refresh.add_argument("--assumptions-dir", default="assumptions")
+    portfolio_refresh.add_argument("--valuations-dir", default="valuations")
+    portfolio_refresh.add_argument("--offline", action="store_true", help="Use only local cached research data.")
+    portfolio_refresh.add_argument("--refresh", action="store_true", help="Refresh provider caches during online research.")
+    portfolio_refresh.add_argument("--include-sensitivity", action="store_true")
+    portfolio_refresh.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
 
     rsu_tax = subparsers.add_parser("rsu-tax", help="Estimate Israeli Section 102 RSU sale taxes.")
     rsu_tax.add_argument("--ticker", help="Stock ticker used to fetch grant and sale prices.")
@@ -228,6 +279,102 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 result["agentContext"] = paths
             _write_or_print(render_valuation_result(result, args.format), args.output)
+        elif args.command == "portfolio":
+            if args.portfolio_command == "init":
+                result = init_portfolio(args.output, cwd=Path.cwd(), portfolio_dir=args.portfolio_dir)
+                print(render_portfolio_summary(result), end="")
+            elif args.portfolio_command == "import":
+                result = import_portfolio_workbook(
+                    args.workbook,
+                    cwd=Path.cwd(),
+                    portfolio_dir=args.portfolio_dir,
+                )
+                print(render_portfolio_summary(result), end="")
+            elif args.portfolio_command == "export":
+                result = export_portfolio_workbook(
+                    args.workbook,
+                    cwd=Path.cwd(),
+                    portfolio_dir=args.portfolio_dir,
+                    assumptions_dir=args.assumptions_dir,
+                    valuations_dir=args.valuations_dir,
+                    research_root=research_root,
+                )
+                print(render_portfolio_summary(result), end="")
+            elif args.portfolio_command == "value":
+                result = run_portfolio_valuations(
+                    cwd=Path.cwd(),
+                    portfolio_dir=args.portfolio_dir,
+                    assumptions_dir=args.assumptions_dir,
+                    valuations_dir=args.valuations_dir,
+                    research_root=research_root,
+                    include_sensitivity=args.include_sensitivity,
+                )
+                print(render_portfolio_summary({"message": "portfolio valuations completed", **result}), end="")
+                if result.get("errors"):
+                    return 2
+            elif args.portfolio_command == "signals":
+                result = build_portfolio_signals(
+                    cwd=Path.cwd(),
+                    portfolio_dir=args.portfolio_dir,
+                    valuations_dir=args.valuations_dir,
+                    research_root=research_root,
+                    write=True,
+                )
+                if args.workbook:
+                    export_portfolio_workbook(
+                        args.workbook,
+                        cwd=Path.cwd(),
+                        portfolio_dir=args.portfolio_dir,
+                        assumptions_dir=args.assumptions_dir,
+                        valuations_dir=args.valuations_dir,
+                        research_root=research_root,
+                    )
+                print(
+                    render_portfolio_summary(
+                        {
+                            "message": "portfolio signals completed",
+                            "signals": len(result.get("rows", [])),
+                            "blocked": sum(1 for row in result.get("rows", []) if row.get("dataQuality") == "blocked"),
+                        }
+                    ),
+                    end="",
+                )
+            elif args.portfolio_command == "refresh":
+                if not args.offline:
+                    _require_sec_user_agent()
+                result = refresh_portfolio(
+                    cwd=Path.cwd(),
+                    portfolio_dir=args.portfolio_dir,
+                    workbook_path=args.workbook,
+                    research_root=research_root,
+                    assumptions_dir=args.assumptions_dir,
+                    valuations_dir=args.valuations_dir,
+                    offline=args.offline,
+                    refresh=args.refresh,
+                    include_sensitivity=args.include_sensitivity,
+                )
+                errors = [
+                    row.get("error", "")
+                    for row in result.get("research", [])
+                    if isinstance(row, dict) and row.get("status") == "error" and row.get("error")
+                ]
+                errors.extend(result.get("valuation", {}).get("errors", []))
+                print(
+                    render_portfolio_summary(
+                        {
+                            "message": "portfolio refresh completed",
+                            "research": len(result.get("research", [])),
+                            "valued": result.get("valuation", {}).get("valuedCount", 0),
+                            "signals": result.get("signals", {}).get("count", 0),
+                            "errors": errors,
+                        }
+                    ),
+                    end="",
+                )
+                if errors:
+                    return 2
+            else:
+                parser.error(f"Unknown portfolio command: {args.portfolio_command}")
         elif args.command == "rsu-tax":
             inputs = _rsu_inputs_from_args(args, research_root=research_root)
             print(render_rsu_tax_summary(calculate_rsu_tax(inputs)))
