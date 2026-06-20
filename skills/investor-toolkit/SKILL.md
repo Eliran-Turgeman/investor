@@ -126,6 +126,11 @@ Default portfolio artifacts:
 - `portfolio/operating_preferences.json` - research cadence and output-depth preferences.
 - `portfolio/external_exposure.json` - RSUs and other portfolios tracked separately from active holdings.
 - `portfolio/onboarding_notes.md` - onboarding design notes and inferred-default policy.
+- `portfolio/thesis_template.md` - reusable agent-owned thesis memo template.
+- `portfolio/bear_case_template.md` - reusable agent-owned bear-case memo template.
+- `portfolio/theses/README.md` - folder guide for thesis notes.
+- `portfolio/rejected/README.md` - folder guide for skipped, deferred, or rejected ideas.
+- `portfolio/decisions/README.md` - folder guide for decisions, monthly reviews, and process records.
 - `portfolio/portfolio.xlsx` - user-facing workbook.
 - `portfolio/holdings.json` - normalized holdings from workbook or agent edits.
 - `portfolio/watchlist.json` - normalized watchlist from workbook or agent edits.
