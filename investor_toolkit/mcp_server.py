@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,12 +74,11 @@ class InvestorMcpServer:
             result = self._dispatch(method, params if isinstance(params, dict) else {})
         except JsonRpcError as exc:
             return self._error(request_id, exc.code, exc.message, exc.data)
-        except Exception as exc:
+        except Exception:
             return self._error(
                 request_id,
                 JSONRPC_INTERNAL_ERROR,
-                str(exc) or exc.__class__.__name__,
-                {"traceback": traceback.format_exc(limit=8)},
+                "Internal MCP server error.",
             )
         if request_id is None:
             return None
@@ -92,8 +90,10 @@ class InvestorMcpServer:
         try:
             payload = self.tools[name].handler(arguments or {})
             return _tool_result(payload)
-        except Exception as exc:
-            return _tool_error(str(exc), {"exception": exc.__class__.__name__})
+        except (ValueError, FileNotFoundError) as exc:
+            return _tool_error(str(exc) or "Tool execution failed.")
+        except Exception:
+            return _tool_error("Tool execution failed.")
 
     def _dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if method == "initialize":
@@ -256,6 +256,7 @@ class InvestorMcpServer:
                 ),
                 output_schema=_operation_schema(),
                 read_only=False,
+                destructive=True,
                 handler=self._init_profile,
             ),
             ToolSpec(
@@ -295,6 +296,8 @@ class InvestorMcpServer:
                 ),
                 output_schema=_operation_schema(),
                 read_only=False,
+                destructive=True,
+                open_world=True,
                 handler=lambda args: self.app.research.ingest(
                     args["ticker"],
                     offline=bool(args.get("offline", False)),
@@ -318,17 +321,18 @@ class InvestorMcpServer:
                             "description": "Deterministic valuation model to template.",
                         },
                         "scenario": {"type": "string", "default": "base"},
-                        "outputPath": _string("Workspace-relative or absolute path for the assumptions JSON."),
+                        "outputPath": _string("Workspace/configured-root path for the assumptions JSON."),
                     },
                     required=["ticker", "model", "outputPath"],
                 ),
                 output_schema=_operation_schema(),
                 read_only=False,
+                destructive=True,
                 handler=lambda args: self.app.valuation.init_assumptions(
                     args["ticker"],
                     model=args["model"],
                     scenario=str(args.get("scenario") or "base"),
-                    output_path=args["outputPath"],
+                    output_path=self._mcp_path(args["outputPath"], "outputPath"),
                 ).to_dict(),
             ),
             ToolSpec(
@@ -341,7 +345,7 @@ class InvestorMcpServer:
                 ),
                 input_schema=_object_schema(
                     {
-                        "path": _string("Workspace-relative or absolute assumptions JSON path."),
+                        "path": _string("Workspace/configured-root assumptions JSON path."),
                         "expectedTicker": _string("Optional ticker that must match the file.", nullable=True),
                     },
                     required=["path"],
@@ -349,7 +353,7 @@ class InvestorMcpServer:
                 output_schema=_operation_schema(),
                 read_only=True,
                 handler=lambda args: self.app.valuation.validate_assumptions(
-                    args["path"],
+                    self._mcp_path(args["path"], "path"),
                     expected_ticker=args.get("expectedTicker"),
                 ).to_dict(),
             ),
@@ -364,24 +368,18 @@ class InvestorMcpServer:
                 input_schema=_object_schema(
                     {
                         "ticker": _string("US-listed stock ticker, for example MSFT."),
-                        "assumptionsPath": _string("Workspace-relative or absolute assumptions JSON path."),
+                        "assumptionsPath": _string("Workspace/configured-root assumptions JSON path."),
                         "includeSensitivity": {"type": "boolean", "default": False},
                         "includeDebug": {"type": "boolean", "default": False},
-                        "outputPath": _string("Optional workspace-relative or absolute result JSON path.", nullable=True),
+                        "outputPath": _string("Optional workspace/configured-root result JSON path.", nullable=True),
                         "exportAgentContext": {"type": "boolean", "default": False},
                     },
                     required=["ticker", "assumptionsPath"],
                 ),
                 output_schema=_operation_schema(),
                 read_only=False,
-                handler=lambda args: self.app.valuation.run(
-                    args["ticker"],
-                    args["assumptionsPath"],
-                    include_sensitivity=bool(args.get("includeSensitivity", False)),
-                    include_debug=bool(args.get("includeDebug", False)),
-                    output_path=args.get("outputPath"),
-                    export_context=bool(args.get("exportAgentContext", False)),
-                ).to_dict(),
+                destructive=True,
+                handler=self._run_valuation,
             ),
             ToolSpec(
                 name="compare_valuation_scenarios",
@@ -397,7 +395,7 @@ class InvestorMcpServer:
                             "type": "array",
                             "items": {"type": "string"},
                             "minItems": 2,
-                            "description": "Two or more assumptions JSON paths.",
+                            "description": "Two or more workspace/configured-root assumptions JSON paths.",
                         },
                         "includeSensitivity": {"type": "boolean", "default": False},
                     },
@@ -407,7 +405,7 @@ class InvestorMcpServer:
                 read_only=True,
                 handler=lambda args: self.app.valuation.compare(
                     args["ticker"],
-                    list(args["assumptionsPaths"]),
+                    self._mcp_paths(list(args["assumptionsPaths"]), "assumptionsPaths"),
                     include_sensitivity=bool(args.get("includeSensitivity", False)),
                 ).to_dict(),
             ),
@@ -424,6 +422,7 @@ class InvestorMcpServer:
                 ),
                 output_schema=_operation_schema(),
                 read_only=False,
+                destructive=True,
                 handler=lambda args: self.app.portfolio.value(
                     include_sensitivity=bool(args.get("includeSensitivity", False))
                 ).to_dict(),
@@ -439,19 +438,39 @@ class InvestorMcpServer:
                 input_schema=_object_schema(
                     {
                         "write": {"type": "boolean", "default": True},
-                        "workbookPath": _string("Optional workbook path to export after writing signals.", nullable=True),
+                        "workbookPath": _string(
+                            "Optional workspace/configured-root workbook path to export after writing signals.",
+                            nullable=True,
+                        ),
                     },
                     required=[],
                 ),
                 output_schema=_operation_schema(),
                 read_only=False,
-                handler=lambda args: self.app.portfolio.signals(
-                    write=bool(args.get("write", True)),
-                    workbook_path=args.get("workbookPath"),
-                ).to_dict(),
+                destructive=True,
+                handler=self._build_portfolio_signals,
             ),
         ]
         return {spec.name: spec for spec in specs}
+
+    def _run_valuation(self, args: dict[str, Any]) -> dict[str, Any]:
+        assumptions_path = self._mcp_path(args["assumptionsPath"], "assumptionsPath")
+        output_path = self._mcp_optional_path(args.get("outputPath"), "outputPath")
+        return self.app.valuation.run(
+            args["ticker"],
+            assumptions_path,
+            include_sensitivity=bool(args.get("includeSensitivity", False)),
+            include_debug=bool(args.get("includeDebug", False)),
+            output_path=output_path,
+            export_context=bool(args.get("exportAgentContext", False)),
+        ).to_dict()
+
+    def _build_portfolio_signals(self, args: dict[str, Any]) -> dict[str, Any]:
+        workbook_path = self._mcp_optional_path(args.get("workbookPath"), "workbookPath")
+        return self.app.portfolio.signals(
+            write=bool(args.get("write", True)),
+            workbook_path=workbook_path,
+        ).to_dict()
 
     def _init_profile(self, args: dict[str, Any]) -> dict[str, Any]:
         result = self.app.profile.init(
@@ -483,6 +502,51 @@ class InvestorMcpServer:
             artifacts=refs,
             sourcePaths=[ref.path for ref in refs if ref.exists],
         ).to_dict()
+
+    def _mcp_optional_path(self, value: Any, field_name: str) -> str | None:
+        if value is None:
+            return None
+        return self._mcp_path(value, field_name)
+
+    def _mcp_paths(self, values: list[Any], field_name: str) -> list[str]:
+        return [self._mcp_path(value, f"{field_name}[{index}]") for index, value in enumerate(values)]
+
+    def _mcp_path(self, value: Any, field_name: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{field_name} must be a non-empty workspace/configured-root path.")
+        raw_path = Path(value)
+        if raw_path.is_absolute():
+            resolved = raw_path.resolve()
+        else:
+            resolved = (self.app.context.workspace_root / raw_path).resolve()
+        if not self._is_allowed_mcp_path(resolved):
+            raise ValueError(f"{field_name} escapes the MCP workspace/configured roots: {value}")
+        return str(resolved)
+
+    def _is_allowed_mcp_path(self, path: Path) -> bool:
+        for root in self._mcp_allowed_roots():
+            try:
+                path.relative_to(root)
+                return True
+            except ValueError:
+                continue
+        return False
+
+    def _mcp_allowed_roots(self) -> list[Path]:
+        context = self.app.context
+        roots = [
+            context.workspace_root,
+            context.research_root,
+            context.portfolio_dir,
+            context.assumptions_dir,
+            context.valuations_dir,
+        ]
+        unique_roots: list[Path] = []
+        for root in roots:
+            resolved = Path(root).resolve()
+            if resolved not in unique_roots:
+                unique_roots.append(resolved)
+        return unique_roots
 
     @staticmethod
     def _error(request_id: Any, code: int, message: str, data: Any = None) -> dict[str, Any]:

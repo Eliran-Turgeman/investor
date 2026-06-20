@@ -296,6 +296,121 @@ class McpContractTests(unittest.TestCase):
         self.assertIn("investor://profile/{artifact}", {template["uriTemplate"] for template in templates})
         self.assertIn("get_profile_status", onboarding_prompt["messages"][0]["content"]["text"])
 
+    def test_mcp_path_arguments_cannot_escape_configured_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "workspace"
+            workspace.mkdir()
+            outside_json = Path(tmp) / "outside.json"
+            outside_xlsx = Path(tmp) / "outside.xlsx"
+            server = _server(workspace)
+
+            cases = [
+                (
+                    "init_valuation_assumptions",
+                    {"ticker": "ACME", "model": "fcff-dcf", "outputPath": str(outside_json)},
+                    outside_json,
+                ),
+                ("validate_assumptions", {"path": str(outside_json)}, None),
+                ("run_valuation", {"ticker": "ACME", "assumptionsPath": str(outside_json)}, None),
+                (
+                    "run_valuation",
+                    {"ticker": "ACME", "assumptionsPath": "assumptions/ACME.base.json", "outputPath": str(outside_json)},
+                    outside_json,
+                ),
+                (
+                    "compare_valuation_scenarios",
+                    {"ticker": "ACME", "assumptionsPaths": ["assumptions/ACME.base.json", str(outside_json)]},
+                    None,
+                ),
+                ("build_portfolio_signals", {"workbookPath": str(outside_xlsx)}, outside_xlsx),
+            ]
+
+            for tool_name, args, forbidden_output in cases:
+                with self.subTest(tool=tool_name):
+                    result = server.call_tool(tool_name, args)
+                    self.assertTrue(result["isError"], result)
+                    self.assertIn("escapes the MCP workspace/configured roots", result["content"][0]["text"])
+                    if forbidden_output is not None:
+                        self.assertFalse(forbidden_output.exists())
+
+    def test_mcp_path_arguments_allow_workspace_relative_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            research_root = _write_research_fixture(tmp)
+            output_path = Path(tmp) / "assumptions" / "ACME.base.json"
+            payload = _call_tool(
+                _server(tmp, research_root=research_root),
+                "init_valuation_assumptions",
+                {"ticker": "ACME", "model": "fcff-dcf", "outputPath": "assumptions/ACME.base.json"},
+            )
+
+            self.assertEqual(payload["status"], "ok")
+            self.assertEqual(payload["data"]["ticker"], "ACME")
+            self.assertTrue(output_path.is_file())
+
+    def test_mcp_internal_errors_do_not_expose_tracebacks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            server = _server(tmp)
+
+            def raise_internal_error(method, params):
+                raise RuntimeError("sensitive implementation detail")
+
+            server._dispatch = raise_internal_error
+            response = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+            encoded = json.dumps(response)
+
+        self.assertEqual(response["error"]["message"], "Internal MCP server error.")
+        self.assertNotIn("traceback", encoded.lower())
+        self.assertNotIn("sensitive implementation detail", encoded)
+
+    def test_mcp_tool_errors_do_not_expose_exception_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            server = _server(tmp)
+
+            def raise_tool_error(args):
+                raise RuntimeError("sensitive tool detail")
+
+            server.tools["get_profile_status"].handler = raise_tool_error
+            result = server.call_tool("get_profile_status", {})
+            encoded = json.dumps(result)
+
+        self.assertTrue(result["isError"], result)
+        self.assertEqual(result["content"][0]["text"], "Tool execution failed.")
+        self.assertNotIn("exception", encoded.lower())
+        self.assertNotIn("traceback", encoded.lower())
+        self.assertNotIn("RuntimeError", encoded)
+        self.assertNotIn("sensitive tool detail", encoded)
+
+    def test_mcp_tool_annotations_reflect_writes_and_network_access(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tools = _server(tmp).handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]
+            by_name = {tool["name"]: tool["annotations"] for tool in tools}
+
+        mutating_tools = {
+            "init_investor_profile",
+            "refresh_company_research",
+            "init_valuation_assumptions",
+            "run_valuation",
+            "run_portfolio_valuations",
+            "build_portfolio_signals",
+        }
+        read_only_tools = {
+            "get_portfolio_context",
+            "get_profile_status",
+            "list_company_artifacts",
+            "validate_assumptions",
+            "compare_valuation_scenarios",
+        }
+        for tool_name in mutating_tools:
+            with self.subTest(tool=tool_name):
+                self.assertFalse(by_name[tool_name]["readOnlyHint"])
+                self.assertTrue(by_name[tool_name]["destructiveHint"])
+        for tool_name in read_only_tools:
+            with self.subTest(tool=tool_name):
+                self.assertTrue(by_name[tool_name]["readOnlyHint"])
+                self.assertFalse(by_name[tool_name]["destructiveHint"])
+                self.assertFalse(by_name[tool_name]["openWorldHint"])
+        self.assertTrue(by_name["refresh_company_research"]["openWorldHint"])
+
 
 def _server(
     workspace_root: str | Path,
