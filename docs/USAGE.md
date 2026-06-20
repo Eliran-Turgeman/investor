@@ -495,6 +495,12 @@ portfolio/
   onboarding_notes.md
   thesis_template.md
   bear_case_template.md
+  theses/
+    README.md
+  rejected/
+    README.md
+  decisions/
+    README.md
   portfolio.xlsx
   holdings.json
   watchlist.json

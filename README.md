@@ -95,6 +95,7 @@ investor portfolio init --output portfolio/portfolio.xlsx
 investor portfolio import --workbook portfolio/portfolio.xlsx
 investor portfolio value
 investor portfolio signals --workbook portfolio/portfolio.xlsx
+investor portfolio export --workbook portfolio/portfolio.xlsx
 investor rsu-tax --ticker MSFT --grant-date 2022-05-30 --shares 100 --ordinary-tax-rate 47
 investor-mcp --workspace-root .
 ```
@@ -142,6 +143,9 @@ external_exposure.json
 onboarding_notes.md
 thesis_template.md
 bear_case_template.md
+theses/README.md
+rejected/README.md
+decisions/README.md
 portfolio.xlsx
 holdings.json
 watchlist.json

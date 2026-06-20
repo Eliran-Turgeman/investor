@@ -22,6 +22,7 @@ investor portfolio init --output <PATH>
 investor portfolio import --workbook <PATH>
 investor portfolio value
 investor portfolio signals --workbook <PATH>
+investor portfolio export --workbook <PATH>
 investor portfolio refresh --offline --workbook <PATH>
 investor rsu-tax
 ```
@@ -87,6 +88,7 @@ investor portfolio init --output portfolio/portfolio.xlsx
 investor portfolio import --workbook portfolio/portfolio.xlsx
 investor portfolio value
 investor portfolio signals --workbook portfolio/portfolio.xlsx
+investor portfolio export --workbook portfolio/portfolio.xlsx
 ```
 
 The workbook is the user-facing editing surface for holdings, watchlist rows, assumption paths, and user fair values. Import after Excel edits before recalculating. Signals are rule-based diagnostics such as `Opportunity`, `Watch`, `Review`, or `No decision`; do not present them as direct buy/sell/hold instructions.
@@ -103,6 +105,11 @@ Read portfolio artifacts directly when explaining results:
 - `portfolio/operating_preferences.json`
 - `portfolio/external_exposure.json`
 - `portfolio/onboarding_notes.md`
+- `portfolio/thesis_template.md`
+- `portfolio/bear_case_template.md`
+- `portfolio/theses/README.md`
+- `portfolio/rejected/README.md`
+- `portfolio/decisions/README.md`
 - `portfolio/holdings.json`
 - `portfolio/watchlist.json`
 - `portfolio/assumption_overrides.json`

@@ -534,13 +534,13 @@ Do not ask the user expert-level investing questions upfront. The first-run flow
 
 ## Minimal Questions
 
-1. What is this portfolio trying to accomplish?
-2. What kinds of businesses do you understand best?
-3. What kinds of businesses should we avoid?
-4. How concentrated are you comfortable being?
-5. Should external exposure affect this active portfolio?
-6. How many high-signal ideas should be shown each month?
-7. Do you want short briefs first, or deep research by default?
+Ask at most five broad questions before writing profile artifacts:
+
+1. What is this portfolio trying to accomplish, and over what horizon?
+2. What kinds of businesses does the user understand best?
+3. What kinds of businesses, geographies, or risks should be avoided?
+4. Should external RSUs or other portfolios affect this active portfolio?
+5. How many high-signal ideas should be shown each month?
 
 ## Defaults Created By This Onboarding
 
@@ -554,7 +554,7 @@ Do not ask the user expert-level investing questions upfront. The first-run flow
 
 ## MCP Resources
 
-Profile files are exposed through `investor://profile/...` resources so assistants can read policy context without guessing.
+Profile files are exposed through `investor://profile/...` resources after onboarding, and `investor://profile/status` is available before onboarding so assistants can check whether setup is needed.
 """
 
 
