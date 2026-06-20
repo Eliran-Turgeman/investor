@@ -552,9 +552,9 @@ Do not ask the user expert-level investing questions upfront. The first-run flow
 - Short briefs first, deep dives on request.
 - External exposure affects active sizing: {str(request.external_exposure_affects_active_portfolio).lower()}.
 
-## MCP TODO
+## MCP Resources
 
-Expose these profile files through `investor://profile/...` resources so assistants can read policy context without guessing.
+Profile files are exposed through `investor://profile/...` resources so assistants can read policy context without guessing.
 """
 
 
