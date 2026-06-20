@@ -197,6 +197,22 @@ class McpContractTests(unittest.TestCase):
         self.assertFalse(status["onboardingRequired"])
         self.assertTrue(status["profileExists"])
 
+    def test_portfolio_context_surfaces_existing_profile_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            portfolio_dir = Path(tmp) / "portfolio"
+            server = _server(tmp, portfolio_dir=portfolio_dir)
+            _call_tool(server, "init_investor_profile", {})
+
+            context = _call_tool(server, "get_portfolio_context", {})
+
+        artifact_uris = {item["uri"] for item in context["artifacts"]}
+        profile_artifact_uris = {item["uri"] for item in context["data"]["profileArtifacts"]}
+        self.assertFalse(context["data"]["profileStatus"]["onboardingRequired"])
+        self.assertIn("investor://profile/preferences", artifact_uris)
+        self.assertIn("investor://profile/operating-preferences", artifact_uris)
+        self.assertIn("investor://profile/preferences", profile_artifact_uris)
+        self.assertIn(str((portfolio_dir / "preferences.json").resolve()), context["sourcePaths"])
+
     def test_profile_onboarding_cli_and_mcp_write_equivalent_policy_data(self):
         with tempfile.TemporaryDirectory() as tmp:
             cli_dir = Path(tmp) / "cli" / "portfolio"

@@ -30,12 +30,15 @@ class PortfolioService:
             cwd=self.context.workspace_root,
             valuations_dir=self.context.valuations_dir,
         )
-        artifacts = [ref for ref in self.catalog.portfolio_artifacts() if ref.exists]
+        portfolio_artifacts = [ref for ref in self.catalog.portfolio_artifacts() if ref.exists]
+        profile_artifacts = [ref for ref in self.catalog.profile_artifacts() if ref.exists]
+        artifacts = [*portfolio_artifacts, *profile_artifacts]
         profile_status = self.catalog.profile_status()
         return OperationResult(
             operation="portfolio.context",
             data={
                 "profileStatus": profile_status,
+                "profileArtifacts": [ref.to_dict() for ref in profile_artifacts],
                 "tickers": inputs.tickers,
                 "holdings": inputs.holdings,
                 "watchlist": inputs.watchlist,
