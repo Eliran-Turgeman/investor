@@ -107,7 +107,7 @@ Profile gating:
 
 - `get_profile_status` reports `onboardingRequired`, existing profile artifacts, and missing profile artifacts.
 - `investor://profile/status` is a virtual resource that exists even before onboarding files are written.
-- `get_portfolio_context` includes `profileStatus` and returns onboarding next actions when profile artifacts are missing.
+- `get_portfolio_context` includes `profileStatus`, existing profile resources in `data.profileArtifacts`, `artifacts`, and `sourcePaths`, and onboarding next actions when profile artifacts are missing.
 - MCP prompt `investor_onboarding` tells assistants to ask only broad questions, call `init_investor_profile`, and avoid a long questionnaire.
 
 `scripts/setup.ps1` registers this server in `%USERPROFILE%\.codex\config.toml` by default with `SEC_USER_AGENT = "InvestorResearchAssistant contact@example.com"` so online SEC refresh tools can run after Codex is restarted.

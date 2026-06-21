@@ -175,7 +175,7 @@ The package also includes a no-dependency MCP stdio server and registers it with
 investor-mcp
 ```
 
-MCP tools are intentionally deterministic and artifact-oriented. They do not issue buy/sell/hold recommendations; the assistant still owns interpretation, thesis challenge, and narrative. `investor://profile/status` is always available; assistants should call `get_profile_status` at the start of personalized portfolio or candidate workflows and run `init_investor_profile` when `onboardingRequired` is true. Profile resources are exposed under `investor://profile/...` after onboarding files exist.
+MCP tools are intentionally deterministic and artifact-oriented. They do not issue buy/sell/hold recommendations; the assistant still owns interpretation, thesis challenge, and narrative. `investor://profile/status` is always available; assistants should call `get_profile_status` at the start of personalized portfolio or candidate workflows and run `init_investor_profile` when `onboardingRequired` is true. Profile resources are exposed under `investor://profile/...` after onboarding files exist, and `get_portfolio_context` includes existing profile resources in `data.profileArtifacts`, `artifacts`, and `sourcePaths`.
 
 ## Provider Limits
 

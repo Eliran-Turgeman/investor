@@ -177,7 +177,8 @@ class InvestorMcpServer:
                 description=(
                     "Use this when the user asks about their current holdings, watchlist, portfolio rules, "
                     "or existing valuation outputs. This is read-only and returns normalized local portfolio "
-                    "inputs plus known valuation rows, artifact references, and profileStatus. If "
+                    "inputs plus known valuation rows, artifact references, profileStatus, and existing "
+                    "profile artifacts in data.profileArtifacts. If "
                     "profileStatus.onboardingRequired is true, run lightweight onboarding before personalized "
                     "portfolio analysis or candidate generation."
                 ),
