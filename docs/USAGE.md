@@ -68,6 +68,16 @@ investor portfolio export
 investor portfolio value
 investor portfolio signals
 investor portfolio refresh
+investor discovery discover
+investor discovery refresh
+investor discovery score
+investor discovery brief
+investor discovery reject
+investor discovery defer
+investor discovery propose-promotions
+investor discovery promote
+investor discovery review-watchlist
+investor agents run
 investor rsu-tax
 investor-mcp
 ```
@@ -379,6 +389,107 @@ investor portfolio refresh --offline --workbook portfolio/portfolio.xlsx
 ```
 
 Online refresh requires `SEC_USER_AGENT`. Offline refresh uses only local cached data and should be used when network access is unavailable.
+
+### `investor discovery`
+
+Runs the automated stock discovery and triage harness. The harness owns candidate queue state, ranked opportunities, briefs, rejection/defer records, and watchlist promotion proposals. It does not mutate holdings and does not add anything to `watchlist.json` without explicit `promote --approved`.
+
+```powershell
+investor discovery discover --ticker MSFT --ticker PANW --no-default-screens
+investor discovery discover --source-file portfolio/my_screen.json
+investor discovery refresh MSFT --offline
+investor discovery score MSFT
+investor discovery brief MSFT
+investor discovery reject MSFT --reason "Outside circle of competence."
+investor discovery defer MSFT --reason "Need fresh valuation output."
+investor discovery propose-promotions
+investor discovery promote MSFT --approved
+investor discovery review-watchlist --offline
+```
+
+Expected outputs:
+
+```text
+portfolio/candidates.json
+portfolio/top_opportunities.json
+portfolio/candidate_briefs/<TICKER>.md
+portfolio/rejected/<TICKER>.md
+portfolio/discovery_runs/<RUN_ID>.json
+```
+
+Every ranked candidate carries source facts, deterministic calculations, component scores, key risks, missing evidence, next action, artifact paths or MCP-style URIs, and a watchlist promotion rationale. Missing data, stale prices, failed refreshes, invalid assumptions, and stale valuation outputs are explicit warnings.
+
+### `investor agents run`
+
+Runs the LLM-backed multi-agent discovery and research harness. This is the AI layer: it uses role agents to analyze persisted local evidence and writes auditable reviews, briefs, proposed states, and token usage.
+
+```powershell
+$env:SEC_USER_AGENT = "InvestorResearchAssistant contact@example.com"
+$env:OPENAI_API_KEY = "..."
+investor agents run --provider openai --refresh-research --limit 5
+```
+
+Explicit tickers:
+
+```powershell
+investor agents run --provider openai --ticker MSFT --ticker PANW --refresh-research --limit 2
+```
+
+No-token dry run:
+
+```powershell
+investor agents run --provider dry-run --ticker MSFT --no-default-screens
+```
+
+Expected outputs:
+
+```text
+portfolio/audit.db
+portfolio/agent_runs/<RUN_ID>.json
+portfolio/agent_reviews/<TICKER>.json
+portfolio/agent_briefs/<TICKER>.md
+portfolio/candidates.json
+```
+
+The command uses five LLM calls per candidate in the first implementation: four role agents and one committee chair. Use `--limit`, `--ticker`, and `--max-context-chars` to control token spend. Agent triage is persisted as `agentSuggestedState`; the workflow state becomes `agent_reviewed` until an analyst records `analyst_approved`, `analyst_rejected`, or `needs_more_evidence`. The deprecated `--apply-agent-states` flag is ignored. Agents never mutate holdings or watchlist entries.
+
+Verify persisted agent claims:
+
+```powershell
+investor agents verify-claims MSFT
+```
+
+Record analyst review:
+
+```powershell
+investor agents approve MSFT --state analyst_approved --reason "Ready for explicit watchlist-promotion review."
+investor agents approve MSFT --state analyst_rejected --reason "Outside circle of competence."
+investor agents approve MSFT --state needs_more_evidence --reason "Need fresh valuation output."
+```
+
+`analyst_approved` requires an existing agent review, existing agent brief, and clean claim verification. `investor discovery promote <TICKER> --approved` also requires current `analyst_approved` state and matching approval source hashes.
+
+Vendor-drop imports use normalized CSV or Parquet contracts:
+
+```powershell
+investor data import --kind fundamentals --path vendor.csv --provider ExampleVendor
+investor data import --kind prices --path prices.csv --provider ExampleVendor --max-price-age-days 5 --block-stale-prices
+```
+
+Import rows must include a `provider` column matching `--provider`. Prices require `adjustment`; fundamentals and estimates require `unit`; duplicate primary keys, invalid currencies, invalid periods, and invalid dates block the import.
+
+Local eval suites use analyst-labeled JSONL files:
+
+```powershell
+investor eval run --suite gold_candidates
+```
+
+Verify the audit ledger hash chains and append-only triggers:
+
+```powershell
+investor audit verify
+investor audit verify --path portfolio/audit.db
+```
 
 ### `investor rsu-tax`
 

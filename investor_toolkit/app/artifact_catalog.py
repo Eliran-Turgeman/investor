@@ -51,7 +51,198 @@ class ArtifactCatalog:
                 base / "valuation_audit.json",
                 "portfolio",
             ),
+            self._ref(
+                "investor://portfolio/candidates",
+                "candidates.json",
+                base / "candidates.json",
+                "discovery",
+                description="Discovery harness candidate queue.",
+            ),
+            self._ref(
+                "investor://portfolio/top-opportunities",
+                "top_opportunities.json",
+                base / "top_opportunities.json",
+                "discovery",
+                description="Ranked discovery harness candidates for review.",
+            ),
         ]
+
+    def discovery_artifacts(self) -> list[ArtifactReference]:
+        base = self.context.portfolio_dir
+        refs = [
+            self._ref(
+                "investor://portfolio/candidates",
+                "candidates.json",
+                base / "candidates.json",
+                "discovery",
+                description="Discovery harness candidate queue.",
+            ),
+            self._ref(
+                "investor://portfolio/top-opportunities",
+                "top_opportunities.json",
+                base / "top_opportunities.json",
+                "discovery",
+                description="Ranked discovery harness candidates for review.",
+            ),
+        ]
+        run_dir = base / "discovery_runs"
+        if run_dir.exists():
+            for path in sorted(run_dir.glob("*.json")):
+                refs.append(
+                    self._ref(
+                        f"investor://portfolio/discovery-runs/{_uri_part(path.stem)}",
+                        path.name,
+                        path,
+                        "discovery-run",
+                        description="Append-only discovery harness run log.",
+                    )
+                )
+        briefs_dir = base / "candidate_briefs"
+        if briefs_dir.exists():
+            for path in sorted(briefs_dir.glob("*.md")):
+                refs.append(
+                    self._ref(
+                        f"investor://portfolio/candidate-briefs/{_uri_part(path.stem)}",
+                        path.name,
+                        path,
+                        "candidate-brief",
+                        mime_type="text/markdown",
+                        description="Agent-owned discovery candidate brief.",
+                    )
+                )
+        rejected_dir = base / "rejected"
+        if rejected_dir.exists():
+            for path in sorted(rejected_dir.glob("*.md")):
+                if path.name.upper() == "README.MD":
+                    continue
+                refs.append(
+                    self._ref(
+                        f"investor://portfolio/rejected/{_uri_part(path.stem)}",
+                        path.name,
+                        path,
+                        "candidate-rejection",
+                        mime_type="text/markdown",
+                        description="Discovery candidate rejection rationale.",
+                    )
+                )
+        return refs
+
+    def valuation_artifacts(self) -> list[ArtifactReference]:
+        refs: list[ArtifactReference] = []
+        base = self.context.valuations_dir
+        if not base.exists():
+            return refs
+        for path in sorted(base.glob("*.result.json")):
+            parts = path.name.split(".")
+            ticker = _uri_part(parts[0]) if parts else _uri_part(path.stem)
+            refs.append(
+                self._ref(
+                    f"investor://valuation/{ticker}/{_uri_part(path.stem)}",
+                    path.name,
+                    path,
+                    "valuation-result",
+                    description="Deterministic valuation result JSON.",
+                )
+            )
+        return refs
+
+    def agent_harness_artifacts(self) -> list[ArtifactReference]:
+        base = self.context.portfolio_dir
+        refs: list[ArtifactReference] = []
+        audit_path = base / "audit.db"
+        refs.append(
+            self._ref(
+                "investor://portfolio/audit-ledger",
+                "audit.db",
+                audit_path,
+                "audit-ledger",
+                mime_type="application/vnd.sqlite3",
+                description="Append-only institutional pilot audit ledger.",
+            )
+        )
+        run_dir = base / "agent_runs"
+        if run_dir.exists():
+            for path in sorted(run_dir.glob("*.json")):
+                refs.append(
+                    self._ref(
+                        f"investor://portfolio/agent-runs/{_uri_part(path.stem)}",
+                        path.name,
+                        path,
+                        "agent-run",
+                        description="LLM-backed multi-agent harness run log.",
+                    )
+                )
+        review_dir = base / "agent_reviews"
+        if review_dir.exists():
+            for path in sorted(review_dir.glob("*.json")):
+                refs.append(
+                    self._ref(
+                        f"investor://portfolio/agent-reviews/{_uri_part(path.stem)}",
+                        path.name,
+                        path,
+                        "agent-review",
+                        description="Per-ticker LLM agent committee review.",
+                    )
+                )
+        brief_dir = base / "agent_briefs"
+        if brief_dir.exists():
+            for path in sorted(brief_dir.glob("*.md")):
+                refs.append(
+                    self._ref(
+                        f"investor://portfolio/agent-briefs/{_uri_part(path.stem)}",
+                        path.name,
+                        path,
+                        "agent-brief",
+                        mime_type="text/markdown",
+                        description="Per-ticker LLM agent committee brief.",
+                    )
+                )
+        return refs
+
+    def approval_artifacts(self) -> list[ArtifactReference]:
+        refs: list[ArtifactReference] = []
+        base = self.context.portfolio_dir / "approvals"
+        if not base.exists():
+            return refs
+        for path in sorted(base.glob("*.json")):
+            refs.append(
+                self._ref(
+                    f"investor://portfolio/approvals/{_uri_part(path.stem)}",
+                    path.name,
+                    path,
+                    "analyst-approval",
+                    description="Analyst review approval, rejection, or missing-evidence record.",
+                )
+            )
+        return refs
+
+    def institutional_artifacts(self) -> list[ArtifactReference]:
+        refs: list[ArtifactReference] = []
+        imports_root = self.context.workspace_root / "data_imports"
+        if imports_root.exists():
+            for path in sorted(imports_root.rglob("*.json")):
+                refs.append(
+                    self._ref(
+                        f"investor://data-imports/{_uri_part(path.parent.name)}/{_uri_part(path.stem)}",
+                        path.name,
+                        path,
+                        "data-import",
+                        description="Normalized vendor-drop import manifest.",
+                    )
+                )
+        eval_root = self.context.workspace_root / "evals" / "results"
+        if eval_root.exists():
+            for path in sorted(eval_root.glob("*.json")):
+                refs.append(
+                    self._ref(
+                        f"investor://evals/results/{_uri_part(path.stem)}",
+                        path.name,
+                        path,
+                        "eval-result",
+                        description="Agent harness eval result artifact.",
+                    )
+                )
+        return refs
 
     def profile_artifacts(self) -> list[ArtifactReference]:
         base = self.context.portfolio_dir
@@ -231,6 +422,15 @@ class ArtifactCatalog:
     def all_existing_resources(self) -> list[ArtifactReference]:
         resources = [self.profile_status_resource()]
         resources.extend(ref for ref in self.portfolio_artifacts() if ref.exists)
+        resources.extend(
+            ref
+            for ref in self.discovery_artifacts()
+            if ref.exists and ref.uri not in {existing.uri for existing in resources}
+        )
+        resources.extend(ref for ref in self.agent_harness_artifacts() if ref.exists)
+        resources.extend(ref for ref in self.approval_artifacts() if ref.exists)
+        resources.extend(ref for ref in self.institutional_artifacts() if ref.exists)
+        resources.extend(ref for ref in self.valuation_artifacts() if ref.exists)
         resources.extend(ref for ref in self.profile_artifacts() if ref.exists)
         if self.context.research_root.exists():
             for child in sorted(self.context.research_root.iterdir()):

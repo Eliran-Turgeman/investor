@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
+import tempfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -105,7 +107,34 @@ def read_json(path: Path, default: Any = None) -> Any:
 def write_json(path: Path, data: Any) -> None:
     content = json.dumps(data, indent=2, sort_keys=True, allow_nan=False) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    _atomic_write_text(path, content)
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="\n",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            tmp_path = Path(handle.name)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except Exception:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
+    try:
+        os.replace(tmp_path, path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def write_text(path: Path, content: str) -> None:

@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Sequence
 
 from .app import AppContext, InvestorApplication
+from .audit import verify_audit_ledger
+from .data_import import IMPORT_SCHEMAS, import_vendor_drop
+from .evals import run_eval_suite
 from .logging_utils import close_logging
 from .portfolio import render_portfolio_summary
 from .providers import ExchangeRateProvider, ProviderError, StooqMarketDataProvider
@@ -191,6 +194,133 @@ def build_parser() -> argparse.ArgumentParser:
     portfolio_refresh.add_argument("--include-sensitivity", action="store_true")
     portfolio_refresh.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
 
+    discovery = subparsers.add_parser("discovery", help="Automated stock discovery and triage harness.")
+    discovery_subparsers = discovery.add_subparsers(dest="discovery_command", required=True)
+
+    discovery_discover = discovery_subparsers.add_parser("discover", help="Run configured discovery screens and update the candidate queue.")
+    discovery_discover.add_argument("--ticker", action="append", default=[], help="Ticker to add to the discovery queue. Repeatable.")
+    discovery_discover.add_argument("--source-file", help="JSON ticker list or screen config to ingest.")
+    discovery_discover.add_argument("--config", help="Discovery config JSON. Defaults to portfolio/discovery_config.json when present.")
+    discovery_discover.add_argument("--screen-name", default="manual", help="Screen/source name for --ticker inputs.")
+    discovery_discover.add_argument("--run-id", help="Optional run id for the append-only discovery run log.")
+    discovery_discover.add_argument("--no-default-screens", action="store_true", help="Do not include built-in profile seed screens.")
+    discovery_discover.add_argument("--resurface-rejected", action="store_true", help="Allow rejected tickers to be seen again in this run.")
+    discovery_discover.add_argument("--portfolio-dir", default="portfolio")
+    discovery_discover.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    discovery_refresh = discovery_subparsers.add_parser("refresh", help="Refresh local research and metrics for one candidate.")
+    discovery_refresh.add_argument("ticker")
+    discovery_refresh.add_argument("--offline", action="store_true")
+    discovery_refresh.add_argument("--refresh", action="store_true", help="Refresh provider caches when online.")
+    discovery_refresh.add_argument("--portfolio-dir", default="portfolio")
+    discovery_refresh.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    discovery_score = discovery_subparsers.add_parser("score", help="Score one candidate from local artifacts.")
+    discovery_score.add_argument("ticker")
+    discovery_score.add_argument("--portfolio-dir", default="portfolio")
+    discovery_score.add_argument("--assumptions-dir", default="assumptions")
+    discovery_score.add_argument("--valuations-dir", default="valuations")
+    discovery_score.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    discovery_brief = discovery_subparsers.add_parser("brief", help="Write a candidate brief from local artifacts and scores.")
+    discovery_brief.add_argument("ticker")
+    discovery_brief.add_argument("--portfolio-dir", default="portfolio")
+    discovery_brief.add_argument("--assumptions-dir", default="assumptions")
+    discovery_brief.add_argument("--valuations-dir", default="valuations")
+    discovery_brief.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    discovery_reject = discovery_subparsers.add_parser("reject", help="Reject a candidate and append the rationale.")
+    discovery_reject.add_argument("ticker")
+    discovery_reject.add_argument("--reason", required=True)
+    discovery_reject.add_argument("--portfolio-dir", default="portfolio")
+
+    discovery_defer = discovery_subparsers.add_parser("defer", help="Defer a candidate until a specific evidence or valuation condition changes.")
+    discovery_defer.add_argument("ticker")
+    discovery_defer.add_argument("--reason", required=True)
+    discovery_defer.add_argument("--portfolio-dir", default="portfolio")
+
+    discovery_propose = discovery_subparsers.add_parser("propose-promotions", help="List candidates that deserve explicit watchlist review.")
+    discovery_propose.add_argument("--limit", type=int, default=10)
+    discovery_propose.add_argument("--portfolio-dir", default="portfolio")
+
+    discovery_promote = discovery_subparsers.add_parser("promote", help="Promote a candidate to watchlist.json after explicit user approval.")
+    discovery_promote.add_argument("ticker")
+    discovery_promote.add_argument("--approved", action="store_true", help="Required explicit approval gate.")
+    discovery_promote.add_argument("--portfolio-dir", default="portfolio")
+
+    discovery_review = discovery_subparsers.add_parser("review-watchlist", help="Refresh and rescore existing watchlist names.")
+    discovery_review.add_argument("--offline", action="store_true")
+    discovery_review.add_argument("--refresh", action="store_true")
+    discovery_review.add_argument("--portfolio-dir", default="portfolio")
+    discovery_review.add_argument("--assumptions-dir", default="assumptions")
+    discovery_review.add_argument("--valuations-dir", default="valuations")
+    discovery_review.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    agents = subparsers.add_parser("agents", help="LLM-backed multi-agent discovery and research harness.")
+    agents_subparsers = agents.add_subparsers(dest="agents_command", required=True)
+
+    agents_run = agents_subparsers.add_parser("run", help="Run multi-agent discovery and research over candidates.")
+    agents_run.add_argument("--ticker", action="append", default=[], help="Ticker to research. Repeatable.")
+    agents_run.add_argument("--limit", type=int, default=5, help="Maximum candidates to send through the agent committee.")
+    agents_run.add_argument("--run-id", help="Optional run id for portfolio/agent_runs.")
+    agents_run.add_argument("--provider", choices=("openai", "dry-run"), default=os.getenv("INVESTOR_AGENT_PROVIDER", "openai"))
+    agents_run.add_argument("--model", default=os.getenv("INVESTOR_AGENT_MODEL"), help="LLM model. Defaults to provider default.")
+    agents_run.add_argument("--reasoning-effort", default="low", choices=("none", "low", "medium", "high", "xhigh"))
+    agents_run.add_argument("--verbosity", default="low", choices=("low", "medium", "high"))
+    agents_run.add_argument("--max-context-chars", type=int, default=18000)
+    agents_run.add_argument("--no-discover", action="store_true", help="Skip discovery and use existing candidates or --ticker inputs.")
+    agents_run.add_argument("--no-default-screens", action="store_true", help="Do not include built-in seed screens during discovery.")
+    agents_run.add_argument("--refresh-research", action="store_true", help="Refresh deterministic local research before agent analysis.")
+    agents_run.add_argument("--offline", action="store_true", help="Use cached/local research when refreshing.")
+    agents_run.add_argument(
+        "--apply-agent-states",
+        action="store_true",
+        help="Deprecated: ignored. Agents record agentSuggestedState only; analyst approval owns state changes.",
+    )
+    agents_run.add_argument("--portfolio-dir", default="portfolio")
+    agents_run.add_argument("--assumptions-dir", default="assumptions")
+    agents_run.add_argument("--valuations-dir", default="valuations")
+    agents_run.add_argument("--research-root", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
+    agents_verify = agents_subparsers.add_parser("verify-claims", help="Verify persisted agent-review claims for one ticker.")
+    agents_verify.add_argument("ticker")
+    agents_verify.add_argument("--portfolio-dir", default="portfolio")
+
+    agents_approve = agents_subparsers.add_parser("approve", help="Record analyst approval or rejection for an agent-reviewed candidate.")
+    agents_approve.add_argument("ticker")
+    agents_approve.add_argument("--state", choices=("analyst_approved", "analyst_rejected", "needs_more_evidence"), required=True)
+    agents_approve.add_argument("--reason", required=True)
+    agents_approve.add_argument("--reviewer", default="analyst")
+    agents_approve.add_argument("--portfolio-dir", default="portfolio")
+
+    data = subparsers.add_parser("data", help="Normalized vendor-drop import commands.")
+    data_subparsers = data.add_subparsers(dest="data_command", required=True)
+
+    data_import = data_subparsers.add_parser("import", help="Import a normalized vendor CSV or Parquet drop.")
+    data_import.add_argument("--kind", choices=sorted(IMPORT_SCHEMAS), required=True)
+    data_import.add_argument("--path", required=True)
+    data_import.add_argument("--provider", required=True)
+    data_import.add_argument("--run-id")
+    data_import.add_argument("--output-root", default="data_imports")
+    data_import.add_argument("--portfolio-dir", default="portfolio")
+    data_import.add_argument("--max-price-age-days", type=int, help="Warn or block price rows older than this many days.")
+    data_import.add_argument("--block-stale-prices", action="store_true", help="Block price imports when --max-price-age-days is exceeded.")
+
+    eval_parser = subparsers.add_parser("eval", help="Local agent harness eval commands.")
+    eval_subparsers = eval_parser.add_subparsers(dest="eval_command", required=True)
+
+    eval_run = eval_subparsers.add_parser("run", help="Run an analyst-labeled local eval suite.")
+    eval_run.add_argument("--suite", default="gold_candidates")
+    eval_run.add_argument("--run-id")
+    eval_run.add_argument("--portfolio-dir", default="portfolio")
+
+    audit = subparsers.add_parser("audit", help="Audit ledger integrity commands.")
+    audit_subparsers = audit.add_subparsers(dest="audit_command", required=True)
+
+    audit_verify = audit_subparsers.add_parser("verify", help="Verify audit.db hash chains and append-only triggers.")
+    audit_verify.add_argument("--path", help="Path to audit.db. Defaults to <portfolio-dir>/audit.db.")
+    audit_verify.add_argument("--portfolio-dir", default="portfolio")
+
     rsu_tax = subparsers.add_parser("rsu-tax", help="Estimate Israeli Section 102 RSU sale taxes.")
     rsu_tax.add_argument("--ticker", help="Stock ticker used to fetch grant and sale prices.")
     rsu_tax.add_argument("--grant-date", help="Grant date as YYYY-MM-DD. Used for grant baseline and 2-year test.")
@@ -358,6 +488,106 @@ def main(argv: Sequence[str] | None = None) -> int:
                     return 2
             else:
                 parser.error(f"Unknown portfolio command: {args.portfolio_command}")
+        elif args.command == "discovery":
+            app = _discovery_app(args, research_root=research_root)
+            if args.discovery_command == "discover":
+                result = app.discovery.discover(
+                    tickers=args.ticker,
+                    source_file=args.source_file,
+                    config_file=args.config,
+                    screen_name=args.screen_name,
+                    include_default_screens=not args.no_default_screens,
+                    resurface_rejected=args.resurface_rejected,
+                    run_id=args.run_id,
+                )
+            elif args.discovery_command == "refresh":
+                result = app.discovery.refresh(args.ticker, offline=args.offline, refresh=args.refresh)
+            elif args.discovery_command == "score":
+                result = app.discovery.score(args.ticker)
+            elif args.discovery_command == "brief":
+                result = app.discovery.brief(args.ticker)
+            elif args.discovery_command == "reject":
+                result = app.discovery.reject(args.ticker, args.reason)
+            elif args.discovery_command == "defer":
+                result = app.discovery.defer(args.ticker, args.reason)
+            elif args.discovery_command == "propose-promotions":
+                result = app.discovery.propose_promotions(limit=args.limit)
+            elif args.discovery_command == "promote":
+                result = app.discovery.promote(args.ticker, approved=args.approved)
+            elif args.discovery_command == "review-watchlist":
+                result = app.discovery.review_watchlist(offline=args.offline, refresh=args.refresh)
+            else:
+                parser.error(f"Unknown discovery command: {args.discovery_command}")
+            print(_render_discovery_result(result), end="")
+            if result.errors:
+                return 2
+        elif args.command == "agents":
+            app = _agent_harness_app(args, research_root=research_root)
+            if args.agents_command == "run":
+                result = app.agents.run_discovery_research(
+                    tickers=args.ticker,
+                    limit=args.limit,
+                    run_id=args.run_id,
+                    discover=not args.no_discover,
+                    include_default_screens=not args.no_default_screens,
+                    refresh_research=args.refresh_research,
+                    offline=args.offline,
+                    provider=args.provider,
+                    model=args.model,
+                    reasoning_effort=args.reasoning_effort,
+                    verbosity=args.verbosity,
+                    max_context_chars=args.max_context_chars,
+                    apply_agent_states=args.apply_agent_states,
+                )
+            elif args.agents_command == "verify-claims":
+                result = app.agents.verify_claims(args.ticker)
+            elif args.agents_command == "approve":
+                result = app.agents.approve(args.ticker, state=args.state, reason=args.reason, reviewer=args.reviewer)
+            else:
+                parser.error(f"Unknown agents command: {args.agents_command}")
+            print(_render_agent_harness_result(result), end="")
+            if result.errors:
+                return 2
+        elif args.command == "data":
+            if args.data_command == "import":
+                result = import_vendor_drop(
+                    kind=args.kind,
+                    path=args.path,
+                    provider=args.provider,
+                    cwd=Path.cwd(),
+                    output_root=args.output_root,
+                    run_id=args.run_id,
+                    portfolio_dir=args.portfolio_dir,
+                    max_price_age_days=args.max_price_age_days,
+                    block_stale_prices=args.block_stale_prices,
+                )
+                print(_render_data_import_result(result), end="")
+                if result.get("status") != "ok":
+                    return 2
+            else:
+                parser.error(f"Unknown data command: {args.data_command}")
+        elif args.command == "eval":
+            if args.eval_command == "run":
+                result = run_eval_suite(
+                    suite=args.suite,
+                    cwd=Path.cwd(),
+                    portfolio_dir=args.portfolio_dir,
+                    run_id=args.run_id,
+                )
+                print(_render_eval_result(result), end="")
+                if result.get("status") != "ok":
+                    return 2
+            else:
+                parser.error(f"Unknown eval command: {args.eval_command}")
+        elif args.command == "audit":
+            if args.audit_command == "verify":
+                audit_path = Path(args.path) if args.path else Path(args.portfolio_dir) / "audit.db"
+                result = verify_audit_ledger(audit_path)
+                print(_render_audit_verify_result(result), end="")
+                if result.get("status") != "ok":
+                    return 2
+            else:
+                parser.error(f"Unknown audit command: {args.audit_command}")
         elif args.command == "rsu-tax":
             inputs = _rsu_inputs_from_args(args, research_root=research_root)
             print(render_rsu_tax_summary(calculate_rsu_tax(inputs)))
@@ -441,6 +671,164 @@ def _portfolio_app(args: argparse.Namespace, research_root: str | Path | None = 
         assumptions_dir=getattr(args, "assumptions_dir", None),
         valuations_dir=getattr(args, "valuations_dir", None),
     )
+
+
+def _discovery_app(args: argparse.Namespace, research_root: str | Path | None = None) -> InvestorApplication:
+    return _app(
+        args,
+        research_root=research_root,
+        portfolio_dir=getattr(args, "portfolio_dir", None),
+        assumptions_dir=getattr(args, "assumptions_dir", None),
+        valuations_dir=getattr(args, "valuations_dir", None),
+    )
+
+
+def _agent_harness_app(args: argparse.Namespace, research_root: str | Path | None = None) -> InvestorApplication:
+    return _app(
+        args,
+        research_root=research_root,
+        portfolio_dir=getattr(args, "portfolio_dir", None),
+        assumptions_dir=getattr(args, "assumptions_dir", None),
+        valuations_dir=getattr(args, "valuations_dir", None),
+    )
+
+
+def _render_discovery_result(result: OperationResult) -> str:
+    data = result.data
+    lines = [f"{result.operation}: {result.status}"]
+    if data.get("ticker"):
+        lines.append(f"Ticker: {data['ticker']}")
+    if data.get("candidateCount") is not None:
+        lines.append(f"Candidate count: {data['candidateCount']}")
+    if data.get("discovered"):
+        lines.append("Discovered: " + ", ".join(data["discovered"]))
+    if data.get("updated"):
+        lines.append("Updated: " + ", ".join(data["updated"]))
+    if data.get("suppressed"):
+        lines.append("Suppressed rejected: " + ", ".join(data["suppressed"]))
+    if data.get("runPath"):
+        lines.append(f"Run log: {data['runPath']}")
+    if data.get("candidatesPath"):
+        lines.append(f"Candidates: {data['candidatesPath']}")
+    if data.get("topOpportunitiesPath"):
+        lines.append(f"Top opportunities: {data['topOpportunitiesPath']}")
+    if data.get("briefPath"):
+        lines.append(f"Brief: {data['briefPath']}")
+    if data.get("watchlistPath"):
+        lines.append(f"Watchlist: {data['watchlistPath']}")
+    candidate = data.get("candidate")
+    if isinstance(candidate, dict):
+        if candidate.get("state"):
+            lines.append(f"State: {candidate['state']}")
+        if candidate.get("totalScore") is not None:
+            lines.append(f"Total score: {candidate['totalScore']}")
+        if candidate.get("watchlistPromotionRationale"):
+            lines.append(candidate["watchlistPromotionRationale"])
+    rows = data.get("rows")
+    if isinstance(rows, list):
+        lines.append(f"Rows: {len(rows)}")
+        for row in rows[:10]:
+            if isinstance(row, dict) and row.get("ticker"):
+                score = row.get("totalScore")
+                state = row.get("state")
+                lines.append(f"- {row['ticker']}: {score if score is not None else 'n/a'} ({state or 'n/a'})")
+    for warning in result.warnings:
+        lines.append(f"Warning: {warning.message}")
+    for error in result.errors:
+        lines.append(f"Error: {error}")
+    return "\n".join(lines) + "\n"
+
+
+def _render_agent_harness_result(result: OperationResult) -> str:
+    data = result.data
+    usage = data.get("tokenUsage", {}) if isinstance(data.get("tokenUsage"), dict) else {}
+    lines = [
+        f"{result.operation}: {result.status}",
+        f"Provider/model: {data.get('provider', 'n/a')} / {data.get('model', 'n/a')}",
+        f"Run id: {data.get('runId', 'n/a')}",
+        f"Selected: {', '.join(data.get('selectedTickers', [])) if data.get('selectedTickers') else 'none'}",
+        (
+            "Token usage: "
+            f"{usage.get('totalTokens', 0)} total "
+            f"({usage.get('inputTokens', 0)} input, {usage.get('outputTokens', 0)} output, "
+            f"{usage.get('cachedInputTokens', 0)} cached input)"
+        ),
+    ]
+    artifacts = data.get("artifacts", {}) if isinstance(data.get("artifacts"), dict) else {}
+    if artifacts.get("agentRun"):
+        lines.append(f"Agent run: {artifacts['agentRun']}")
+    if artifacts.get("agentReviewsDir"):
+        lines.append(f"Agent reviews: {artifacts['agentReviewsDir']}")
+    if artifacts.get("agentBriefsDir"):
+        lines.append(f"Agent briefs: {artifacts['agentBriefsDir']}")
+    for review in data.get("reviews", []):
+        if not isinstance(review, dict):
+            continue
+        lines.append(
+            f"- {review.get('ticker')}: {review.get('suggestedState', 'n/a')} "
+            f"({review.get('agentBriefPath', '')})"
+        )
+    if data.get("unsupportedCount") is not None:
+        lines.append(
+            "Claim checks: "
+            f"{data.get('unsupportedCount', 0)} unsupported, "
+            f"{data.get('numericUnsupportedCount', 0)} unsupported numeric, "
+            f"{float(data.get('citationCoverage', 0)) * 100:.1f}% citation coverage"
+        )
+    if data.get("state") and data.get("approvalPath"):
+        lines.append(f"Approval: {data['state']} by {data.get('reviewer', 'analyst')} ({data['approvalPath']})")
+    for warning in result.warnings:
+        lines.append(f"Warning: {warning.message}")
+    for error in result.errors:
+        lines.append(f"Error: {error}")
+    return "\n".join(lines) + "\n"
+
+
+def _render_data_import_result(result: dict[str, object]) -> str:
+    lines = [
+        f"data.import: {result.get('status', 'unknown')}",
+        f"Kind/provider: {result.get('kind')} / {result.get('provider')}",
+        f"Rows: {result.get('normalizedRowCount', 0)} normalized from {result.get('rowCount', 0)}",
+    ]
+    if result.get("normalizedPath"):
+        lines.append(f"Normalized rows: {result['normalizedPath']}")
+    for warning in result.get("warnings", []) if isinstance(result.get("warnings"), list) else []:
+        lines.append(f"Warning: {warning}")
+    for error in result.get("errors", []) if isinstance(result.get("errors"), list) else []:
+        lines.append(f"Error: {error}")
+    return "\n".join(lines) + "\n"
+
+
+def _render_eval_result(result: dict[str, object]) -> str:
+    metrics = result.get("metrics", {}) if isinstance(result.get("metrics"), dict) else {}
+    lines = [
+        f"eval.run: {result.get('status', 'unknown')}",
+        f"Suite: {result.get('suite')}",
+        f"Cases: {metrics.get('caseCount', 0)}",
+        f"Schema valid rate: {float(metrics.get('schemaValidRate', 0)) * 100:.1f}%",
+        f"Citation coverage: {float(metrics.get('citationCoverage', 0)) * 100:.1f}%",
+        f"Unsupported numeric claims/case: {metrics.get('unsupportedNumericClaimRate', 0)}",
+        f"Correct triage rate: {float(metrics.get('correctTriageRate', 0)) * 100:.1f}%",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _render_audit_verify_result(result: dict[str, object]) -> str:
+    tables = result.get("tables", []) if isinstance(result.get("tables"), list) else []
+    lines = [
+        f"audit.verify: {result.get('status', 'unknown')}",
+        f"Path: {result.get('path')}",
+    ]
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        lines.append(
+            f"- {table.get('table')}: {table.get('status')} "
+            f"({table.get('rowCount', 0)} rows, head {str(table.get('headHash', ''))[:12]})"
+        )
+    for failure in result.get("failures", []) if isinstance(result.get("failures"), list) else []:
+        lines.append(f"Error: {failure}")
+    return "\n".join(lines) + "\n"
 
 
 def _write_or_print(content: str, output_path: str | None) -> None:
