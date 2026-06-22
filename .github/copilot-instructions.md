@@ -120,7 +120,7 @@ Read portfolio artifacts directly when explaining results:
 
 If profile artifacts are missing, use `investor onboarding init`. Keep onboarding lightweight: broad defaults first, a few high-level questions only when needed, and no investment recommendations.
 
-For MCP workflows, check `get_profile_status` before personalized portfolio review or candidate generation. If `onboardingRequired` is true, use `init_investor_profile` after asking only broad questions. `investor://profile/status` is always available.
+For MCP workflows, check `get_profile_status` before personalized portfolio review or candidate generation. If `onboardingRequired` is true, use `init_investor_profile` after asking only broad questions. `investor://profile/status` is always available. After onboarding, `get_portfolio_context` surfaces existing profile artifacts in `data.profileArtifacts`, `artifacts`, and `sourcePaths`.
 
 ## Workflow For Israeli RSU Tax Estimates
 

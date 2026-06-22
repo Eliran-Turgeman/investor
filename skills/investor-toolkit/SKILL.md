@@ -151,7 +151,7 @@ investor onboarding init
 
 Onboarding should remain simple: use broad defaults, ask only a few high-level questions when needed, and label inferred preferences separately from explicit user answers.
 
-For MCP workflows, call `get_profile_status` before personalized portfolio review or candidate generation. If `onboardingRequired` is true, use the `investor_onboarding` prompt or call `init_investor_profile` after asking only broad questions. The virtual resource `investor://profile/status` is always available.
+For MCP workflows, call `get_profile_status` before personalized portfolio review or candidate generation. If `onboardingRequired` is true, use the `investor_onboarding` prompt or call `init_investor_profile` after asking only broad questions. The virtual resource `investor://profile/status` is always available. After onboarding, `get_portfolio_context` surfaces existing profile artifacts in `data.profileArtifacts`, `artifacts`, and `sourcePaths`.
 
 ### Bootstrap Or Open Portfolio
 
