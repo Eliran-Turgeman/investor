@@ -96,6 +96,16 @@ investor portfolio import --workbook portfolio/portfolio.xlsx
 investor portfolio value
 investor portfolio signals --workbook portfolio/portfolio.xlsx
 investor portfolio export --workbook portfolio/portfolio.xlsx
+investor discovery discover --ticker MSFT --no-default-screens
+investor discovery score MSFT
+investor discovery brief MSFT
+investor discovery propose-promotions
+investor agents run --provider openai --ticker MSFT --refresh-research
+investor agents verify-claims MSFT
+investor agents approve MSFT --state analyst_approved --reason "Ready for explicit watchlist-promotion review."
+investor data import --kind fundamentals --path vendor.csv --provider ExampleVendor
+investor eval run --suite gold_candidates
+investor audit verify
 investor rsu-tax --ticker MSFT --grant-date 2022-05-30 --shares 100 --ordinary-tax-rate 47
 investor-mcp --workspace-root .
 ```
@@ -153,11 +163,24 @@ assumption_overrides.json
 rules.json
 signals.json
 valuation_audit.json
+audit.db
+candidates.json
+top_opportunities.json
+candidate_briefs/
+discovery_runs/
+agent_runs/
+agent_reviews/
+agent_briefs/
+approvals/
 ```
 
 Run `investor onboarding init` to create the profile and policy artifacts. It uses broad defaults and a few optional flags instead of a long questionnaire.
 
 The workbook is the user-facing editing surface. Import it before recalculating when you change holdings, watchlist rows, or user fair values in Excel. Signals are deterministic diagnostics such as `Opportunity`, `Watch`, `Review`, or `No decision`; they are not broker instructions.
+
+The discovery harness is a triage layer for stock ideas. It writes `portfolio/candidates.json`, append-only discovery run logs, ranked opportunities, candidate briefs, and rejection notes. It may propose watchlist promotion, but `portfolio/watchlist.json` is changed only by `investor discovery promote <TICKER> --approved` after a current clean `analyst_approved` artifact exists. See `docs/DISCOVERY_HARNESS.md`.
+
+The AI agent harness is the LLM-backed institutional-pilot layer for multi-agent research. It runs strict-schema role agents over local evidence, verifies metric-bound claims, records a hash-chained SQLite audit ledger, writes agent reviews and briefs, and tracks token usage. Agent output is proposal-only; analyst approval is recorded separately and the harness does not mutate holdings or silently promote names to the watchlist. See `docs/AI_AGENT_HARNESS.md`.
 
 ## Agent Integration
 

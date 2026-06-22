@@ -657,6 +657,18 @@ def _resource_templates() -> list[dict[str, Any]]:
             "description": "Company research artifact such as metrics, financials, prices, filings, or extracted sections.",
             "mimeType": "application/json",
         },
+        {
+            "uriTemplate": "investor://valuation/{ticker}/{artifact}",
+            "name": "Valuation result artifact",
+            "description": "Deterministic valuation result JSON artifact.",
+            "mimeType": "application/json",
+        },
+        {
+            "uriTemplate": "investor://portfolio/agent-{artifact}/{id}",
+            "name": "Agent harness artifact",
+            "description": "LLM-backed agent harness run, review, or brief artifact.",
+            "mimeType": "application/json",
+        },
     ]
 
 

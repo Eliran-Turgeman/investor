@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from .agent_harness_service import AgentHarnessService
 from .artifact_catalog import ArtifactCatalog
 from .context import AppContext
+from .discovery_service import DiscoveryService
 from .portfolio_service import PortfolioService
 from .profile_service import ProfileService
 from .research_service import ResearchService
@@ -16,3 +18,5 @@ class InvestorApplication:
         self.valuation = ValuationService(self.context)
         self.portfolio = PortfolioService(self.context)
         self.profile = ProfileService(self.context)
+        self.discovery = DiscoveryService(self.context)
+        self.agents = AgentHarnessService(self.context)
