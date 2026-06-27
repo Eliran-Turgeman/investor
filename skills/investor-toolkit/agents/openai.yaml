@@ -1,4 +1,4 @@
 interface:
   display_name: "Investor Toolkit"
-  short_description: "Use local research, valuation, portfolio, and RSU tax tools"
-  default_prompt: "Use $investor-toolkit to prepare deterministic investor data, run explicit-assumption valuations, update portfolio workbook/signals, or estimate RSU tax, then answer by reading and citing local files and command inputs."
+  short_description: "Use local research, valuation, portfolio, discovery, audit, and RSU tools"
+  default_prompt: "Use $investor-toolkit to prepare deterministic investor data, run explicit-assumption valuations, update portfolio workbook/signals, triage discovery candidates, inspect agent/audit artifacts, import vendor data, or estimate RSU tax, then answer by reading and citing local files and command inputs."
