@@ -78,6 +78,11 @@ investor discovery propose-promotions
 investor discovery promote
 investor discovery review-watchlist
 investor agents run
+investor agents verify-claims
+investor agents approve
+investor data import
+investor eval run
+investor audit verify
 investor rsu-tax
 investor-mcp
 ```
@@ -103,10 +108,10 @@ investor-mcp `
   --valuations-dir .\valuations
 ```
 
-The MCP server is a thin adapter over the same application services used by the CLI. It exposes:
+The MCP server is a thin adapter over the core deterministic application services used by the CLI. It exposes:
 
 - tools for investor profile status/onboarding, portfolio context, company artifact discovery, research refresh, assumptions initialization and validation, valuation, scenario comparison, portfolio valuation, and portfolio signals
-- resources for local investor profile, portfolio, and company research artifacts
+- resources for local investor profile, portfolio, discovery, agent harness, approval, data-import, eval, valuation, and company research artifacts when those files exist
 - prompts for investor onboarding, portfolio review, company deep dive, thesis challenge, and candidate briefs
 
 Tool outputs use a stable operation envelope with `schemaVersion`, `operation`, `status`, `generatedAt`, `data`, `warnings`, `errors`, `sourcePaths`, `artifacts`, and `nextActions`.
@@ -469,7 +474,7 @@ investor agents approve MSFT --state needs_more_evidence --reason "Need fresh va
 
 `analyst_approved` requires an existing agent review, existing agent brief, and clean claim verification. `investor discovery promote <TICKER> --approved` also requires current `analyst_approved` state and matching approval source hashes.
 
-Vendor-drop imports use normalized CSV or Parquet contracts:
+Vendor-drop imports use normalized CSV or Parquet contracts. CSV works in the dependency-free CLI; Parquet imports require optional pandas/pyarrow support in the active Python environment.
 
 ```powershell
 investor data import --kind fundamentals --path vendor.csv --provider ExampleVendor
@@ -619,6 +624,29 @@ portfolio/
   rules.json
   signals.json
   valuation_audit.json
+  audit.db
+  candidates.json
+  top_opportunities.json
+  candidate_briefs/
+    MSFT.md
+  discovery_runs/
+    <RUN_ID>.json
+  agent_runs/
+    <RUN_ID>.json
+  agent_reviews/
+    MSFT.json
+  agent_briefs/
+    MSFT.md
+  approvals/
+    MSFT.<TIMESTAMP>.json
+data_imports/
+  <PROVIDER>/
+    <RUN_ID>.<KIND>.jsonl
+    <RUN_ID>.json
+evals/
+  <SUITE>.jsonl
+  results/
+    <RUN_ID>.json
 context/
   valuations/
     MSFT.base.md
@@ -629,6 +657,7 @@ Artifact ownership:
 - CLI-owned: `company.json`, `filings/`, `extracted/`, `data/`, `metrics/`, `index/`.
 - CLI-owned valuation outputs: assumptions templates, validation output, valuation result files, scenario comparisons, and exported agent context.
 - CLI-owned portfolio outputs: normalized imported JSON, signal JSON, valuation audit JSON, and regenerated workbook exports.
+- CLI-owned institutional outputs: discovery queue/run logs, agent reviews/briefs, analyst approval records, audit ledger rows, vendor import manifests, and eval results.
 - Agent/user-owned: `memo.md`, `questions.md`, thesis logs, final valuation interpretation, and any other recommendation or judgment files.
 
 The CLI will not create or overwrite agent/user-owned analysis files.

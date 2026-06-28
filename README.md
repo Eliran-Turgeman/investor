@@ -60,7 +60,7 @@ For MCP-capable assistants, run the local stdio MCP server from the installed fo
 investor-mcp --workspace-root .
 ```
 
-The MCP server exposes the same deterministic application services as the CLI: profile status/onboarding, portfolio context, artifact resources, company research refresh, assumptions validation, valuation, scenario comparison, and portfolio signals.
+The MCP server exposes the core deterministic application services as tools: profile status/onboarding, portfolio context, artifact resources, company research refresh, assumptions validation, valuation, scenario comparison, and portfolio signals. It also exposes existing local profile, portfolio, discovery, agent harness, approval, data-import, eval, valuation, and company research artifacts as resources.
 
 Source checkout CLI-only opt-out:
 
@@ -181,6 +181,8 @@ The workbook is the user-facing editing surface. Import it before recalculating 
 The discovery harness is a triage layer for stock ideas. It writes `portfolio/candidates.json`, append-only discovery run logs, ranked opportunities, candidate briefs, and rejection notes. It may propose watchlist promotion, but `portfolio/watchlist.json` is changed only by `investor discovery promote <TICKER> --approved` after a current clean `analyst_approved` artifact exists. See `docs/DISCOVERY_HARNESS.md`.
 
 The AI agent harness is the LLM-backed institutional-pilot layer for multi-agent research. It runs strict-schema role agents over local evidence, verifies metric-bound claims, records a hash-chained SQLite audit ledger, writes agent reviews and briefs, and tracks token usage. Agent output is proposal-only; analyst approval is recorded separately and the harness does not mutate holdings or silently promote names to the watchlist. See `docs/AI_AGENT_HARNESS.md`.
+
+Vendor-drop imports and eval runs write outside the portfolio folder: normalized import manifests under `data_imports/<PROVIDER>/` and eval results under `evals/results/`. Both are surfaced as MCP resources when present.
 
 ## Agent Integration
 

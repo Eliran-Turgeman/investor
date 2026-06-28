@@ -1,6 +1,6 @@
 ---
 name: investor-toolkit
-description: "Use when Codex or another coding agent needs to work with this repository's local investor toolkit: ingest and normalize US-listed company research data, read local filings/metrics, run deterministic intrinsic valuation from explicit assumptions JSON, compare valuation scenarios, reverse DCF market expectations, build or update a portfolio workbook/watchlist from chat, run portfolio valuation and signal diagnostics, or estimate Israeli Section 102 RSU tax. The skill tells the agent to use the deterministic `investor` CLI for data preparation, metrics, valuation outputs, portfolio artifacts/signals, RSU tax estimates, and artifact discovery, then answer by reading and citing local files or command inputs."
+description: "Use when Codex or another coding agent needs to work with this repository's local investor toolkit: ingest and normalize US-listed company research data, read local filings/metrics, run deterministic intrinsic valuation from explicit assumptions JSON, compare valuation scenarios, reverse DCF market expectations, build or update a portfolio workbook/watchlist, run portfolio diagnostics, triage discovery candidates, review agent-harness artifacts, import vendor data, run eval/audit checks, or estimate Israeli Section 102 RSU tax. The skill tells the agent to use the deterministic `investor` CLI for data preparation, metrics, valuation outputs, portfolio artifacts/signals, discovery and audit artifacts, RSU tax estimates, and artifact discovery, then answer by reading and citing local files or command inputs."
 ---
 
 # Investor Toolkit
@@ -29,10 +29,25 @@ investor portfolio value
 investor portfolio signals --workbook <PATH>
 investor portfolio export --workbook <PATH>
 investor portfolio refresh --offline --workbook <PATH>
+investor discovery discover --ticker <TICKER>
+investor discovery refresh <TICKER> --offline
+investor discovery score <TICKER>
+investor discovery brief <TICKER>
+investor discovery reject <TICKER> --reason <REASON>
+investor discovery defer <TICKER> --reason <REASON>
+investor discovery propose-promotions
+investor discovery promote <TICKER> --approved
+investor discovery review-watchlist --offline
+investor agents run --provider dry-run --ticker <TICKER>
+investor agents verify-claims <TICKER>
+investor agents approve <TICKER> --state analyst_approved --reason <REASON>
+investor data import --kind fundamentals --path <PATH> --provider <PROVIDER>
+investor eval run --suite gold_candidates
+investor audit verify
 investor rsu-tax
 ```
 
-Do not expect or call CLI commands for question answering, memo writing, thesis challenge, assumption selection, broker integration, automated trading, or buy/sell recommendations. Valuation and portfolio commands calculate from explicit local data, assumptions, and rules; the agent/user owns judgment.
+Do not expect or call CLI commands for question answering, memo writing, thesis challenge, assumption selection, broker integration, automated trading, or buy/sell recommendations. Discovery and agent-harness commands write auditable proposal artifacts; the agent/user owns judgment.
 
 If `investor` is not installed, run from the repo root:
 
@@ -138,6 +153,17 @@ Default portfolio artifacts:
 - `portfolio/rules.json` - deterministic signal thresholds.
 - `portfolio/signals.json` - rule-based signal output.
 - `portfolio/valuation_audit.json` - valuation run audit.
+- `portfolio/audit.db` - hash-chained institutional harness audit ledger.
+- `portfolio/candidates.json` - discovery candidate queue.
+- `portfolio/top_opportunities.json` - ranked discovery candidates proposed for review.
+- `portfolio/candidate_briefs/<TICKER>.md` - discovery candidate brief.
+- `portfolio/discovery_runs/<RUN_ID>.json` - append-only discovery run log.
+- `portfolio/agent_runs/<RUN_ID>.json` - LLM agent harness run log.
+- `portfolio/agent_reviews/<TICKER>.json` - structured per-ticker agent review.
+- `portfolio/agent_briefs/<TICKER>.md` - per-ticker agent review brief.
+- `portfolio/approvals/<TICKER>.<TIMESTAMP>.json` - analyst approval, rejection, or missing-evidence record.
+- `data_imports/<PROVIDER>/<RUN_ID>.json` - vendor import manifest.
+- `evals/results/<RUN_ID>.json` - local agent-harness eval result.
 - `assumptions/<TICKER>.<SCENARIO>.json` - explicit valuation assumptions.
 - `valuations/<TICKER>.<SCENARIO>.<MODEL>.result.json` - portfolio-generated valuation results.
 
@@ -249,6 +275,42 @@ Use the reason in `portfolio/signals.json`:
 - Missing fair value: create/fill/validate assumptions or ask the user for a user fair value.
 - Invalid assumptions: read `portfolio/valuation_audit.json`, fix the assumptions JSON, validate, rerun `portfolio value`, then rerun `portfolio signals`.
 - Valuation result older than assumptions: rerun `investor portfolio value`.
+
+## Discovery And Agent Harness Workflow
+
+Use `investor discovery` when the user wants candidate triage, watchlist review, or a lightweight opportunity queue. Discovery writes queue state, scores, source facts, deterministic calculations, warnings, briefs, and promotion proposals. It never mutates holdings and only changes `portfolio/watchlist.json` through:
+
+```powershell
+investor discovery promote MSFT --approved
+```
+
+Promotion requires current `analyst_approved` state, an approval artifact, clean claim verification, and matching approval source hashes.
+
+Use `investor agents run` when an LLM-backed institutional-pilot review is explicitly useful. Prefer `--provider dry-run` for no-token workflow checks. For OpenAI-backed runs, set `OPENAI_API_KEY`, control spend with `--limit`, `--ticker`, and `--max-context-chars`, and treat `agentSuggestedState` as proposal-only.
+
+```powershell
+investor agents run --provider dry-run --ticker MSFT --no-default-screens
+investor agents verify-claims MSFT
+investor agents approve MSFT --state analyst_approved --reason "Ready for explicit watchlist-promotion review."
+```
+
+`analyst_approved` requires an existing agent review, existing agent brief, and clean claim verification. Unsupported claims, stale deterministic data, missing review artifacts, or stale approval source hashes block promotion.
+
+## Vendor Imports, Evals, And Audit Workflow
+
+Use `investor data import` for normalized vendor CSV or Parquet drops. CSV works in the dependency-free CLI; Parquet requires optional pandas/pyarrow support in the active Python environment. Imports validate provider provenance, required columns, duplicate primary keys, currencies, units, periods, price adjustment basis, stale prices, and restatement flags. Read the manifest under `data_imports/<PROVIDER>/` for status, warnings, errors, and `normalizedPath`.
+
+```powershell
+investor data import --kind fundamentals --path vendor.csv --provider ExampleVendor
+investor data import --kind prices --path prices.csv --provider ExampleVendor --max-price-age-days 5 --block-stale-prices
+```
+
+Use `investor eval run --suite <SUITE>` for analyst-labeled agent-harness evals and `investor audit verify` before trusting institutional harness audit history.
+
+```powershell
+investor eval run --suite gold_candidates
+investor audit verify
+```
 
 ## RSU Tax Workflow
 

@@ -24,10 +24,25 @@ investor portfolio value
 investor portfolio signals --workbook <PATH>
 investor portfolio export --workbook <PATH>
 investor portfolio refresh --offline --workbook <PATH>
+investor discovery discover --ticker <TICKER>
+investor discovery refresh <TICKER> --offline
+investor discovery score <TICKER>
+investor discovery brief <TICKER>
+investor discovery reject <TICKER> --reason <REASON>
+investor discovery defer <TICKER> --reason <REASON>
+investor discovery propose-promotions
+investor discovery promote <TICKER> --approved
+investor discovery review-watchlist --offline
+investor agents run --provider dry-run --ticker <TICKER>
+investor agents verify-claims <TICKER>
+investor agents approve <TICKER> --state analyst_approved --reason <REASON>
+investor data import --kind fundamentals --path <PATH> --provider <PROVIDER>
+investor eval run --suite gold_candidates
+investor audit verify
 investor rsu-tax
 ```
 
-Do not expect CLI commands for question answering, memo writing, thesis challenge, assumption selection, or investment recommendations. The agent owns interpretation and narrative.
+Do not expect CLI commands for question answering, memo writing, thesis challenge, assumption selection, or investment recommendations. Discovery and agent-harness commands write auditable proposal artifacts; the agent/user owns interpretation and narrative.
 
 If `investor` is not installed, run from the repo root:
 
@@ -116,11 +131,42 @@ Read portfolio artifacts directly when explaining results:
 - `portfolio/rules.json`
 - `portfolio/signals.json`
 - `portfolio/valuation_audit.json`
+- `portfolio/audit.db`
+- `portfolio/candidates.json`
+- `portfolio/top_opportunities.json`
+- `portfolio/candidate_briefs/<TICKER>.md`
+- `portfolio/discovery_runs/<RUN_ID>.json`
+- `portfolio/agent_runs/<RUN_ID>.json`
+- `portfolio/agent_reviews/<TICKER>.json`
+- `portfolio/agent_briefs/<TICKER>.md`
+- `portfolio/approvals/<TICKER>.<TIMESTAMP>.json`
 - `portfolio/portfolio.xlsx`
 
 If profile artifacts are missing, use `investor onboarding init`. Keep onboarding simple: broad defaults first, a few high-level questions only when needed, and no investment recommendations.
 
 For MCP workflows, check `get_profile_status` before personalized portfolio review or candidate generation. If `onboardingRequired` is true, use `init_investor_profile` after asking only broad questions. `investor://profile/status` is always available. After onboarding, `get_portfolio_context` surfaces existing profile artifacts in `data.profileArtifacts`, `artifacts`, and `sourcePaths`.
+
+## Discovery And Agent Harness
+
+Use `investor discovery` to maintain a triage queue for stock ideas. Discovery may score candidates, write briefs, reject or defer ideas, and propose promotions, but it never mutates holdings and only changes `portfolio/watchlist.json` through `investor discovery promote <TICKER> --approved` after current clean `analyst_approved` state exists.
+
+Use `investor agents run` only when an LLM-backed institutional-pilot review is explicitly useful. Prefer `--provider dry-run` for workflow checks without token spend. For OpenAI-backed runs, set `OPENAI_API_KEY`, control spend with `--limit`, `--ticker`, and `--max-context-chars`, and remember the command writes proposal artifacts under `portfolio/agent_runs/`, `portfolio/agent_reviews/`, and `portfolio/agent_briefs/`. Agent output records `agentSuggestedState`; analyst state is recorded separately with `investor agents approve`.
+
+Verify persisted agent claims before relying on an agent review:
+
+```powershell
+investor agents verify-claims MSFT
+```
+
+Treat unsupported claims, stale deterministic data, missing review artifacts, or stale approval source hashes as blockers for promotion.
+
+## Vendor Imports, Evals, And Audit
+
+Use `investor data import` for normalized vendor CSV or Parquet drops. CSV works in the dependency-free CLI; Parquet requires optional pandas/pyarrow support in the active Python environment. Imports validate provider provenance, required columns, primary keys, currencies, units, periods, price adjustment basis, stale prices, and restatement flags. Read `data_imports/<PROVIDER>/<RUN_ID>.json` for import status and `normalizedPath`.
+
+Use `investor eval run --suite <SUITE>` for local analyst-labeled agent-harness evals. Gold rows live at `evals/<SUITE>.jsonl`; results are written to `evals/results/<RUN_ID>.json`.
+
+Use `investor audit verify` to check `portfolio/audit.db` hash chains and append-only triggers before trusting institutional harness audit history.
 
 ## RSU Tax
 

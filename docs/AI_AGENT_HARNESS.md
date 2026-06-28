@@ -131,7 +131,7 @@ Promotion requires current `analyst_approved` state, a current approval artifact
 
 ## Vendor Drops
 
-Vendor integrations are normalized file imports in v1. Import CSV or Parquet drops through explicit contracts:
+Vendor integrations are normalized file imports in v1. Import CSV or Parquet drops through explicit contracts. CSV works in the dependency-free CLI; Parquet imports require optional pandas/pyarrow support in the active Python environment.
 
 ```powershell
 investor data import --kind fundamentals --path vendor.csv --provider ExampleVendor
