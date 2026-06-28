@@ -298,7 +298,7 @@ investor agents approve MSFT --state analyst_approved --reason "Ready for explic
 
 ## Vendor Imports, Evals, And Audit Workflow
 
-Use `investor data import` for normalized vendor CSV or Parquet drops. Imports validate provider provenance, required columns, duplicate primary keys, currencies, units, periods, price adjustment basis, stale prices, and restatement flags. Read the manifest under `data_imports/<PROVIDER>/` for status, warnings, errors, and `normalizedPath`.
+Use `investor data import` for normalized vendor CSV or Parquet drops. CSV works in the dependency-free CLI; Parquet requires optional pandas/pyarrow support in the active Python environment. Imports validate provider provenance, required columns, duplicate primary keys, currencies, units, periods, price adjustment basis, stale prices, and restatement flags. Read the manifest under `data_imports/<PROVIDER>/` for status, warnings, errors, and `normalizedPath`.
 
 ```powershell
 investor data import --kind fundamentals --path vendor.csv --provider ExampleVendor

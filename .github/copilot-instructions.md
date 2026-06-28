@@ -162,7 +162,7 @@ Unsupported claims, stale deterministic data, missing review artifacts, and stal
 
 ## Workflow For Vendor Imports, Evals, And Audit
 
-Use `investor data import` for normalized vendor CSV or Parquet drops. Imports validate provider provenance, required columns, primary keys, currencies, units, periods, price adjustment basis, stale prices, and restatement flags. Read `data_imports/<PROVIDER>/<RUN_ID>.json` for import status and `normalizedPath`.
+Use `investor data import` for normalized vendor CSV or Parquet drops. CSV works in the dependency-free CLI; Parquet requires optional pandas/pyarrow support in the active Python environment. Imports validate provider provenance, required columns, primary keys, currencies, units, periods, price adjustment basis, stale prices, and restatement flags. Read `data_imports/<PROVIDER>/<RUN_ID>.json` for import status and `normalizedPath`.
 
 Use `investor eval run --suite <SUITE>` for local analyst-labeled agent-harness evals. Gold rows live at `evals/<SUITE>.jsonl`; results are written to `evals/results/<RUN_ID>.json`.
 

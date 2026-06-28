@@ -474,7 +474,7 @@ investor agents approve MSFT --state needs_more_evidence --reason "Need fresh va
 
 `analyst_approved` requires an existing agent review, existing agent brief, and clean claim verification. `investor discovery promote <TICKER> --approved` also requires current `analyst_approved` state and matching approval source hashes.
 
-Vendor-drop imports use normalized CSV or Parquet contracts:
+Vendor-drop imports use normalized CSV or Parquet contracts. CSV works in the dependency-free CLI; Parquet imports require optional pandas/pyarrow support in the active Python environment.
 
 ```powershell
 investor data import --kind fundamentals --path vendor.csv --provider ExampleVendor
